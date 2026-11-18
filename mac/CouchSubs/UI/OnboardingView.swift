@@ -18,6 +18,8 @@ struct OnboardingView: View {
                             case .secondAccount: SecondAccountStep()
                             case .psnLogin: PSNLoginStep()
                             case .console: ConsoleStep()
+                            case .remotePlay: RemotePlayStep()
+                            case .obs: ObsStep()
                             case .tv: TVStep()
                             case .test: TestStep()
                             case .betterTranslation, .done: BetterTranslationStep()
@@ -58,6 +60,10 @@ private struct StepButtons: View {
                 // İsteğe bağlı adım: anahtar yoksa geçilir (birincil düğme adımdaki "Ücretsiz anahtar al").
                 Button("Skip for now") { model.advance() }
                     .buttonStyle(CSButtonStyle(kind: .secondary, height: "buttonLarge"))
+            } else if model.step == .obs && !model.canAdvance {
+                // OBS henüz açık değilse kurulum takılmaz; kaynak sonra Ayarlar › Görüntü kaynağı'nda seçilir.
+                Button("Skip for now") { model.skipStep() }
+                    .buttonStyle(CSButtonStyle(kind: .secondary, height: "buttonLarge"))
             } else if model.step != .test {
                 Button("Continue") { model.advance() }
                     .buttonStyle(CSButtonStyle(kind: .primary, height: "buttonLarge"))
@@ -72,7 +78,10 @@ private struct StepButtons: View {
 private struct StepSidebar: View {
     @EnvironmentObject private var model: AppModel
 
-    private var steps: [AppModel.Step] { AppModel.Step.allCases.filter { $0 != .done } }
+    /// Seçilen görüntü kaynağının adımları; gereksiz adımlar (ör. OBS'te PSN girişi) listede yoktur.
+    private var steps: [AppModel.Step] { model.setupSteps }
+    /// Şimdiki adımın sırası (0'dan); sihirbaz bittiyse son adımın ötesi.
+    private var position: Int { steps.firstIndex(of: model.step) ?? steps.count }
 
     var body: some View {
         let total = steps.count
@@ -83,15 +92,15 @@ private struct StepSidebar: View {
             }
             .padding(.horizontal, Theme.space("s"))
             .padding(.bottom, Theme.space("m"))
-            ForEach(steps, id: \.self) { step in
-                StepRow(step: step, current: model.step)
+            ForEach(Array(steps.enumerated()), id: \.element) { index, step in
+                StepRow(step: step, number: index + 1, isDone: index < position, isCurrent: step == model.step)
             }
             Spacer(minLength: Theme.space("l"))
-            Text(String(format: String(localized: "Step %lld of %lld"), min(model.step.rawValue + 1, total), total))
+            Text(String(format: String(localized: "Step %lld of %lld"), min(position + 1, total), total))
                 .font(.csCaption.monospacedDigit())
                 .foregroundStyle(Color.csSecondary)
                 .padding(.horizontal, Theme.space("s"))
-            ProgressBar(value: Double(model.step.rawValue + 1) / Double(total))
+            ProgressBar(value: Double(min(position + 1, total)) / Double(total))
                 .padding(.horizontal, Theme.space("s"))
                 .padding(.top, Theme.space("xs"))
         }
@@ -103,10 +112,9 @@ private struct StepSidebar: View {
 
 private struct StepRow: View {
     let step: AppModel.Step
-    let current: AppModel.Step
-
-    private var isDone: Bool { step.rawValue < current.rawValue }
-    private var isCurrent: Bool { step == current }
+    let number: Int
+    let isDone: Bool
+    let isCurrent: Bool
 
     var body: some View {
         HStack(spacing: Theme.space("m")) {
@@ -135,7 +143,7 @@ private struct StepRow: View {
                 .frame(width: size, height: size)
                 .background(Circle().fill(Color.csSuccess))
         } else {
-            Text("\(step.rawValue + 1)")
+            Text("\(number)")
                 .font(.csCaption.monospacedDigit().weight(.semibold))
                 .foregroundStyle(isCurrent ? Color.csOnAccent : Color.csSecondary)
                 .frame(width: size, height: size)
@@ -150,6 +158,8 @@ private struct StepRow: View {
         case .secondAccount: "A second PSN account"
         case .psnLogin: "Sign in with the second account"
         case .console: "Connect your PS5"
+        case .remotePlay: "Remote Play on this Mac"
+        case .obs: "Connect OBS"
         case .tv: "Connect your TV"
         case .test: "Let's test it"
         case .betterTranslation, .done: "Better translation (free)"

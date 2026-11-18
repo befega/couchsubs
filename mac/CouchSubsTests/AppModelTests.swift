@@ -80,6 +80,20 @@ final class FakeServices: AppServices {
         streams.append(stream)
         return stream
     }
+    /// OBS kaynağından okuyan akışlar: seçilen kaynak ve parolayı okuyan işlev (her bağlantıda çağrılır).
+    var obsStreams: [(target: ObsSourceTarget, password: () -> String?)] = []
+    func makeObsStream(target: ObsSourceTarget, password: @escaping @Sendable () -> String?) -> StreamControlling {
+        obsStreams.append((target, password))
+        let stream = FakeStream()
+        streams.append(stream)
+        return stream
+    }
+    var obsInputsResult: Result<[ObsInput], ObsError> = .success([])
+    var obsInputRequests: [(endpoint: ObsEndpoint, password: String?)] = []
+    func obsInputs(endpoint: ObsEndpoint, password: String?) async throws -> [ObsInput] {
+        obsInputRequests.append((endpoint, password))
+        return try obsInputsResult.get()
+    }
     func makeKeeper(tv: LGTV, key: String?, params: [String: Any], appConnected: @escaping @Sendable () -> Bool,
                     onMoved: @escaping (LGTV) -> Void, onKey: @escaping @Sendable (String) -> Void) -> KeeperControlling {
         let keeper = FakeKeeper()
@@ -147,9 +161,10 @@ final class FakeStream: StreamControlling {
     var onState: ((SessionState) -> Void)?
     var onConsoleMoved: ((RegisteredConsole) -> Void)?
     var started = false
+    var reconnects = 0
     func start() { started = true }
     func stop() { started = false }
-    func reconnectNow() {}
+    func reconnectNow() { reconnects += 1 }
 }
 
 final class FakeKeeper: KeeperControlling {
@@ -217,28 +232,48 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(AppModel(services: FakeServices(), store: store, defaults: defaults).step, .done)
     }
 
-    /// "İkinci hesap yok mu?": PSN girişi ve PS5 olmadan kurulum biter; görüntü Remote Play penceresinden, altyazı
-    /// bilgisayar ekranında. Yeniden açılınca sihirbaz çıkmaz.
-    func testNoSecondAccountReadsRemotePlayWindowAndCompletesSetup() {
+    /// Karşılamada seçilen görüntü kaynağı sihirbazın adımlarını belirler; gereksiz adımlar (PSN, PS5) hiç gösterilmez.
+    func testSetupStepsFollowTheChosenSource() {
+        let tail: [AppModel.Step] = [.tv, .test, .betterTranslation]
+        XCTAssertEqual(AppModel.setupSteps(for: .ps5), [.welcome, .secondAccount, .psnLogin, .console] + tail)
+        XCTAssertEqual(AppModel.setupSteps(for: .remotePlayWindow), [.welcome, .remotePlay] + tail)
+        XCTAssertEqual(AppModel.setupSteps(for: .obsSource), [.welcome, .obs] + tail)
+    }
+
+    /// Remote Play penceresi: PSN girişi ve PS5 olmadan uygulama adımından TV adımına geçilir; altyazı bilgisayar
+    /// ekranında. Yeniden açılınca sihirbaz çıkmaz.
+    func testRemotePlayWindowSetupSkipsPSNAndPS5() {
         let store = MemoryStore()
         let defaults = UserDefaults.isolated()
         let model = AppModel(services: FakeServices(), store: store, defaults: defaults)
+        XCTAssertEqual(model.step, .welcome)
+        model.chooseFrameSource(.remotePlayWindow)
         model.advance()
-        XCTAssertEqual(model.step, .secondAccount)
-        model.useRemotePlayWindow()
-        XCTAssertEqual(model.step, .done)
-        XCTAssertEqual(model.settings.frameSource, .remotePlayWindow)
-        XCTAssertEqual(model.settings.output, .computer)
+        XCTAssertEqual(model.step, .remotePlay)
+        model.advance()
+        XCTAssertEqual(model.step, .tv)
+        model.back()
+        XCTAssertEqual(model.step, .remotePlay)
+        model.back()
+        XCTAssertEqual(model.step, .welcome)
+        model.advance()
+        model.advance()
+        model.useComputerScreen()
+        XCTAssertEqual(model.step, .test)
         XCTAssertNil(model.accountId)
         XCTAssertTrue(model.canStart)
+        model.advance()
+        model.advance()
+        XCTAssertEqual(model.step, .done)
         XCTAssertEqual(AppModel(services: FakeServices(), store: store, defaults: defaults).step, .done)
     }
 
     /// Pencere modunda kurulmuş, sonra Ayarlar'da PS5 seçilmiş: "Hesabı bağla" görünür, sihirbaz ikinci hesap adımından açılır.
     func testLinkPS5AccountOpensWizardAtSecondAccount() {
         let model = AppModel(services: FakeServices(), store: MemoryStore(), defaults: UserDefaults.isolated())
-        model.advance()
-        model.useRemotePlayWindow()
+        model.chooseFrameSource(.remotePlayWindow)
+        model.settings.output = .computer
+        model.step = .done
         XCTAssertFalse(model.needsPS5Link)
         model.settings.frameSource = .ps5
         XCTAssertTrue(model.needsPS5Link)
@@ -252,8 +287,9 @@ final class AppModelTests: XCTestCase {
         let services = FakeServices()
         services.remotePlayInstalledResult = false
         let model = AppModel(services: services, store: MemoryStore(), defaults: UserDefaults.isolated())
-        model.advance()
-        model.useRemotePlayWindow()
+        model.chooseFrameSource(.remotePlayWindow)
+        model.settings.output = .computer
+        model.step = .done
         XCTAssertTrue(model.remotePlayMissing)
         XCTAssertEqual(model.ps5StatusText, String(localized: "The Remote Play app isn't installed on this Mac. Download it in Settings › Picture source."))
         services.remotePlayInstalledResult = true

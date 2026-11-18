@@ -30,6 +30,8 @@ public enum StoreKey {
     public static let claudeKey = "claudeKey"
     /// Yerel model sunucusunun (Ollama, LM Studio) isteğe bağlı anahtarı.
     public static let localAIKey = "localAIKey"
+    /// OBS'in WebSocket parolası (görüntü OBS kaynağından okunurken; bkz. `ObsSourceReader`).
+    public static let obsPassword = "obsPassword"
     /// "Yayın penceresi"nin zemin rengi (`StreamBackground`).
     public static let streamBackground = "streamBackground"
 }
@@ -87,9 +89,13 @@ public enum SubtitleOutput: String, Codable, CaseIterable {
 
 /// Görüntünün nereden okunduğu. `ps5`: CouchSubs PS5'e kendisi bağlanır (ikinci hesap). `remotePlayWindow`: oyun bu
 /// bilgisayardaki Sony PS Remote Play uygulamasında oynanır, CouchSubs yalnız onun penceresini okur; PS5'e ikinci oturum
-/// açılmadığı için ikinci hesap gerekmez. Eski kayıtlar `ps5` ile açılır.
+/// açılmadığı için ikinci hesap gerekmez. `obsSource`: PS5 capture card ile OBS'e gelir, CouchSubs o kaynağın görüntüsünü
+/// obs-websocket ile OBS'ten ister (bkz. `ObsSourceReader`); kartı OBS tutmaya devam eder. Eski kayıtlar `ps5` ile açılır.
 public enum FrameSource: String, Codable, CaseIterable {
-    case ps5, remotePlayWindow
+    case ps5, remotePlayWindow, obsSource
+
+    /// PS5'e CouchSubs kendisi bağlanır; ikinci hesap ve PS5 eşleştirmesi gerekir.
+    public var needsPS5: Bool { self == .ps5 }
 }
 
 /// Görüntü pencereden okunurken hangi Remote Play uygulamasının penceresi: hangisi açıksa (Sony'nin PS Remote Play'i ya
@@ -145,6 +151,8 @@ public struct UserSettings: Codable, Equatable {
     public var frameSource = FrameSource.ps5
     /// Pencereden okunurken hangi Remote Play uygulaması (bkz. `RemotePlayApp`).
     public var remotePlayApp = RemotePlayApp.automatic
+    /// Görüntü OBS kaynağından okunurken OBS'in adresi ve kaynağın adı; seçilmemişse nil.
+    public var obsSource: ObsSourceTarget?
 
     public init() {}
 
@@ -177,6 +185,7 @@ public struct UserSettings: Codable, Equatable {
         appearance = (try? values.decodeIfPresent(AppAppearance.self, forKey: .appearance)) ?? defaults.appearance
         frameSource = (try? values.decodeIfPresent(FrameSource.self, forKey: .frameSource)) ?? defaults.frameSource
         remotePlayApp = (try? values.decodeIfPresent(RemotePlayApp.self, forKey: .remotePlayApp)) ?? defaults.remotePlayApp
+        obsSource = (try? values.decodeIfPresent(ObsSourceTarget.self, forKey: .obsSource)) ?? defaults.obsSource
     }
 
     /// Hazır bölge seçilir; Özel seçilince kayıtlı bölge olduğu gibi kalır.

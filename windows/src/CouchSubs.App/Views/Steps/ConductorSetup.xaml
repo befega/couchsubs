@@ -1,0 +1,15 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-only -->
+<!-- Seçici ("conductor"): satır seçilen motorların hepsine aynı anda gider, en iyi çeviri seçilir (Ayarlar › Çeviri). -->
+<UserControl x:Class="CouchSubs.App.Views.Steps.ConductorSetup"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:t="clr-namespace:CouchSubs.App.Theme">
+    <StackPanel>
+        <CheckBox x:Name="Enabled" Content="{t:T 'Pick the best of several engines (conductor)'}" Foreground="{DynamicResource textPrimaryBrush}"
+                  Checked="OnEnabled" Unchecked="OnEnabled" />
+        <TextBlock Style="{StaticResource HintText}" TextWrapping="Wrap" Margin="0,8,0,12"
+                   Text="{t:T 'Each line goes to the engines below at the same time and the best translation is chosen in a fraction of a second: lines left in English, lost names and odd lengths lose, and the translation the engines agree on wins. The subtitle waits at most 0.7 s for slow engines. Every line also goes to DeepL, so its quota runs out faster.'}" />
+        <StackPanel x:Name="EngineList" Margin="0,0,0,8" />
+        <TextBlock x:Name="Status" Style="{StaticResource HintText}" TextWrapping="Wrap" />
+    </StackPanel>
+</UserControl>

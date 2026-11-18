@@ -80,9 +80,7 @@ public partial class SettingsWindow : Window
         ShowPacks();
         AppearanceChoice.SelectedItem = AppearanceChoice.Items.Cast<ComboBoxItem>().First(item => (string)item.Tag == settings.Appearance.ToString());
         FrameSourceChoice.SelectedItem = FrameSourceChoice.Items.Cast<ComboBoxItem>().First(item => (string)item.Tag == settings.FrameSource.ToString());
-        RemotePlayAppChoice.SelectedItem = RemotePlayAppChoice.Items.Cast<ComboBoxItem>().First(item => (string)item.Tag == settings.RemotePlayApp.ToString());
         ShowFrameSource();
-        PasscodeTab.Visibility = controller.IsXbox ? Visibility.Collapsed : Visibility.Visible;
         ShowPasscode();
         loading = false;
     }
@@ -109,29 +107,23 @@ public partial class SettingsWindow : Window
         ShowPasscode();
     }
 
-    /// <summary>Remote Play uygulaması seçimi ve ipuçları yalnız seçili görüntü kaynağına göre görünür.</summary>
+    /// <summary>
+    /// Yalnız seçili görüntü kaynağının ayarı görünür. PS5 giriş şifresi sekmesi yalnız PS5'e bağlanırken gerekir
+    /// (Xbox'ta, Remote Play penceresinde, seçili pencerede ve OBS'te gizli).
+    /// </summary>
     private void ShowFrameSource()
     {
-        var window = controller.Settings.FrameSource == FrameSource.RemotePlayWindow;
-        var capture = controller.Settings.FrameSource == FrameSource.CaptureWindow;
-        RemotePlayAppPanel.Visibility = window ? Visibility.Visible : Visibility.Collapsed;
-        WindowSourceHint.Visibility = window ? Visibility.Visible : Visibility.Collapsed;
-        CaptureWindowPanel.Visibility = capture ? Visibility.Visible : Visibility.Collapsed;
-        if (capture) RefreshCaptureWindows();
-        Ps5SourceHint.Visibility = window || capture ? Visibility.Collapsed : Visibility.Visible;
-        SonyInstallRow.Visibility = ChiakiInstallRow.Visibility = window ? Visibility.Visible : Visibility.Collapsed;
-        var sony = controller.RemotePlayInstalled(RemotePlayApp.Sony);
-        var chiaki = controller.RemotePlayInstalled(RemotePlayApp.Chiaki);
-        SonyInstalledText.Visibility = sony ? Visibility.Visible : Visibility.Collapsed;
-        SonyDownloadButton.Visibility = sony ? Visibility.Collapsed : Visibility.Visible;
-        ChiakiInstalledText.Visibility = chiaki ? Visibility.Visible : Visibility.Collapsed;
-        ChiakiDownloadButton.Visibility = chiaki ? Visibility.Collapsed : Visibility.Visible;
+        var source = controller.Settings.FrameSource;
+        RemotePlaySetup.Visibility = source == FrameSource.RemotePlayWindow ? Visibility.Visible : Visibility.Collapsed;
+        CaptureWindowSetup.Visibility = source == FrameSource.CaptureWindow ? Visibility.Visible : Visibility.Collapsed;
+        ObsSourceSetup.Visibility = source == FrameSource.ObsSource ? Visibility.Visible : Visibility.Collapsed;
+        if (source == FrameSource.RemotePlayWindow) RemotePlaySetup.Refresh();
+        if (source == FrameSource.CaptureWindow) CaptureWindowSetup.Refresh();
+        if (source == FrameSource.ObsSource) ObsSourceSetup.Refresh();
+        Ps5SourceHint.Visibility = source == FrameSource.Ps5 ? Visibility.Visible : Visibility.Collapsed;
         Ps5LinkPanel.Visibility = controller.NeedsPs5Link ? Visibility.Visible : Visibility.Collapsed;
+        PasscodeTab.Visibility = !controller.IsXbox && source == FrameSource.Ps5 ? Visibility.Visible : Visibility.Collapsed;
     }
-
-    private void OnDownloadSony(object sender, RoutedEventArgs e) => OpenUrl(AppController.SonyRemotePlayDownload);
-    private void OnDownloadChiaki(object sender, RoutedEventArgs e) => OpenUrl(AppController.ChiakiDownload);
-    private static void OpenUrl(string url) => Process.Start(new ProcessStartInfo(url) { UseShellExecute = true })?.Dispose();
 
     /// <summary>"Hesabı bağla": sihirbaz ikinci hesap adımından açılır; ayar penceresi kapanır, sihirbaz ana pencerede görünür.</summary>
     private void OnLinkPs5(object sender, RoutedEventArgs e)
@@ -145,50 +137,6 @@ public partial class SettingsWindow : Window
         if (FrameSourceChoice.SelectedItem is not ComboBoxItem { Tag: string tag }) return;
         Update(s => s with { FrameSource = Enum.Parse<FrameSource>(tag) });
         ShowFrameSource();
-    }
-
-    private void OnRemotePlayApp(object sender, SelectionChangedEventArgs e)
-    {
-        if (RemotePlayAppChoice.SelectedItem is ComboBoxItem { Tag: string tag })
-            Update(s => s with { RemotePlayApp = Enum.Parse<RemotePlayApp>(tag) });
-    }
-
-    private bool refreshingCaptureWindows;
-
-    private void RefreshCaptureWindows()
-    {
-        if (refreshingCaptureWindows) return;
-        refreshingCaptureWindows = true;
-        try
-        {
-            var saved = controller.Settings.CaptureWindow;
-            var windows = controller.AvailableCaptureWindows();
-            CaptureWindowChoice.Items.Clear();
-            ComboBoxItem? selected = null;
-            foreach (var target in windows)
-            {
-                var option = new ComboBoxItem { Content = $"{target.Title} ({target.ProcessName})", Tag = target };
-                CaptureWindowChoice.Items.Add(option);
-                if (target == saved) selected = option;
-            }
-            if (saved is not null && selected is null)
-            {
-                selected = new ComboBoxItem { Content = $"{saved.Title} ({saved.ProcessName}) — {Localizer.Current["Not currently open"]}", Tag = saved };
-                CaptureWindowChoice.Items.Insert(0, selected);
-            }
-            CaptureWindowChoice.SelectedItem = selected;
-            CaptureWindowEmpty.Visibility = windows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-        }
-        finally { refreshingCaptureWindows = false; }
-    }
-
-    private void OnRefreshCaptureWindows(object sender, RoutedEventArgs e) => RefreshCaptureWindows();
-
-    private void OnCaptureWindowChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (loading || refreshingCaptureWindows) return;
-        if (CaptureWindowChoice.SelectedItem is ComboBoxItem { Tag: WindowCaptureTarget target })
-            Update(s => s with { CaptureWindow = target });
     }
 
     private void OnAppearance(object sender, SelectionChangedEventArgs e)

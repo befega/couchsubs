@@ -13,24 +13,7 @@ struct SecondAccountStep: View {
                 NumberedRow(number: 2, text: "On the PS5, choose Add User and sign in once with the new account.")
                 NumberedRow(number: 3, text: "Still as the new user, go to Settings › System › Remote Play and turn on Enable Remote Play.")
                 NumberedRow(number: 4, text: "Switch back to your own user. You only do this once.")
-                // İkinci hesabı olmayanlar: görüntü bu Mac'teki Remote Play penceresinden okunur, PSN girişi ve PS5
-                // eşleştirmesi atlanır.
-                Card {
-                    HStack {
-                        Text("No second account? Read the Remote Play window").font(.csBody.weight(.semibold))
-                        Spacer()
-                        Button("Select") { model.useRemotePlayWindow() }
-                            .buttonStyle(.secondary)
-                    }
-                    HintText(text: "CouchSubs reads the subtitles from PS Remote Play or chiaki-ng on this Mac. No second account or PS5 pairing is needed. You can connect a TV later.")
-                    if !model.remotePlayInstalled(.automatic) {
-                        Text("PS Remote Play and chiaki-ng aren't installed on this Mac.").foregroundStyle(Color.csSecondary)
-                        HStack {
-                            Button("Download PS Remote Play") { model.openDownload(for: .sony) }.buttonStyle(.secondary)
-                            Button("Download chiaki-ng") { model.openDownload(for: .chiaki) }.buttonStyle(.secondary)
-                        }
-                    }
-                }
+                HintText(text: "No second account? Go back and choose another picture source.")
             }
         }
     }

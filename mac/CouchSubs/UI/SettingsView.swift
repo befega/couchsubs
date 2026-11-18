@@ -74,7 +74,13 @@ struct SettingsView: View {
 
 /// Bölüm listesi: seçili satır yüzey-2 zeminli ve yarı kalın (sarı değil).
 private struct SettingsSidebar: View {
+    @EnvironmentObject private var model: AppModel
     @Binding var section: SettingsSection
+
+    /// Görüntü kaynağıyla ilgisiz bölümler gösterilmez (PS5 giriş şifresi yalnız PS5'e bağlanırken gerekir).
+    private var sections: [SettingsSection] {
+        SettingsSection.allCases.filter { $0 != .ps5 || model.settings.frameSource.needsPS5 }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.space("xs")) {
@@ -82,7 +88,7 @@ private struct SettingsSidebar: View {
                 .font(.csTitle)
                 .padding(.horizontal, Theme.space("m"))
                 .padding(.bottom, Theme.space("s"))
-            ForEach(SettingsSection.allCases) { item in
+            ForEach(sections) { item in
                 SidebarRow(title: item.title, symbol: item.symbol, selected: item == section) { section = item }
             }
             Spacer(minLength: 0)
@@ -487,33 +493,12 @@ private struct FrameSourceCard: View {
             Picker("Read the picture from", selection: $model.settings.frameSource) {
                 Text("The PS5 (second account)").tag(FrameSource.ps5)
                 Text("Remote Play window on this Mac").tag(FrameSource.remotePlayWindow)
+                Text("OBS source (obs-websocket)").tag(FrameSource.obsSource)
             }
-            if model.settings.frameSource == .remotePlayWindow {
-                Picker("Remote Play app", selection: $model.settings.remotePlayApp) {
-                    Text("Whichever is open").tag(RemotePlayApp.automatic)
-                    Text("PS Remote Play (Sony)").tag(RemotePlayApp.sony)
-                    Text("chiaki-ng").tag(RemotePlayApp.chiaki)
-                }
-                HintText(text: "Play in PS Remote Play or chiaki-ng on this Mac; CouchSubs reads only that window, so no second account is needed. Show the subtitles on the computer screen, and allow Screen Recording for CouchSubs when macOS asks.")
-                // Kurulu olanlar "Kurulu", olmayanlar resmi indirme sayfasına giden düğmeyle (ikisi de denenebilir).
-                HStack {
-                    Text("PS Remote Play (Sony)")
-                    Spacer()
-                    if model.remotePlayInstalled(.sony) {
-                        Text("Installed").foregroundStyle(Color.csSecondary)
-                    } else {
-                        Button("Download PS Remote Play") { model.openDownload(for: .sony) }.buttonStyle(.secondary)
-                    }
-                }
-                HStack {
-                    Text("chiaki-ng")
-                    Spacer()
-                    if model.remotePlayInstalled(.chiaki) {
-                        Text("Installed").foregroundStyle(Color.csSecondary)
-                    } else {
-                        Button("Download chiaki-ng") { model.openDownload(for: .chiaki) }.buttonStyle(.secondary)
-                    }
-                }
+            if model.settings.frameSource == .obsSource {
+                ObsSourcePanel()
+            } else if model.settings.frameSource == .remotePlayWindow {
+                RemotePlayAppChoice()
             } else {
                 HintText(text: "CouchSubs connects to the PS5 with the second account. Sony's PS Remote Play can't be used at the same time.")
                 if model.needsPS5Link {
@@ -526,6 +511,144 @@ private struct FrameSourceCard: View {
                         }
                         .buttonStyle(.secondary)
                     }
+                }
+            }
+        }
+    }
+}
+
+/// OBS kaynağı: OBS'in adresi ve WebSocket parolası girilir, "Bağlan ve kaynakları listele" ile OBS'teki görüntülü
+/// kaynaklar gelir (önce capture card ve kameralar). Seçilen kaynak (adresiyle) kaydedilir; çeviri sürüyorsa yeni kaynakla
+/// yeniden başlar. Parola Anahtarlık'tadır.
+struct ObsSourcePanel: View {
+    @EnvironmentObject private var model: AppModel
+    @State private var address = ""
+    @State private var password = ""
+    @State private var inputs: [ObsInput] = []
+    /// Bu açılışta OBS'e bağlanılıp liste alındı; kayıtlı kaynak listede yoksa "OBS'de bulunamadı" denir.
+    @State private var listed = false
+    @State private var connecting = false
+    @State private var status: String?
+    @State private var error: String?
+
+    private var saved: ObsSourceTarget? { model.settings.obsSource }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.space("m")) {
+            HintText(text: "In OBS open Tools › WebSocket Server Settings, turn on Enable WebSocket server and copy the password from Show Connect Info. CouchSubs only asks OBS for pictures of the source you choose: the capture card, the stream and the recording are not touched.")
+            HStack(spacing: Theme.space("m")) {
+                Text("OBS address")
+                TextField(ObsEndpoint.defaultAddress, text: $address)
+                    .textFieldStyle(CSTextFieldStyle())
+                    .autocorrectionDisabled()
+            }
+            HStack(spacing: Theme.space("m")) {
+                Text("Password")
+                if model.hasObsPassword {
+                    Text("Password saved.").foregroundStyle(Color.csSecondary)
+                    Spacer()
+                    Button("Remove") { model.removeObsPassword() }.buttonStyle(.secondary)
+                } else {
+                    SecureField("", text: $password).textFieldStyle(CSTextFieldStyle())
+                }
+            }
+            Button(connecting ? "Connecting to OBS…" : "Connect and list sources") { Task { await connect() } }
+                .buttonStyle(.secondary)
+                .disabled(connecting || address.trimmingCharacters(in: .whitespaces).isEmpty)
+            if !choices.isEmpty {
+                Picker("OBS source", selection: selection) {
+                    ForEach(choices, id: \.name) { input in
+                        Text(verbatim: label(for: input)).tag(Optional(input.name))
+                    }
+                }
+            }
+            if let error {
+                ErrorText(error: error)
+            } else if let status {
+                Text(verbatim: status).font(.csCallout).foregroundStyle(Color.csSecondary)
+            }
+        }
+        .onAppear { address = saved?.address ?? ObsEndpoint.defaultAddress }
+    }
+
+    /// OBS'ten gelen kaynaklar; kayıtlı kaynak listede yoksa (henüz bağlanılmadı ya da OBS'te silindi) başa eklenir.
+    private var choices: [ObsInput] {
+        guard let name = saved?.sourceName, !name.isEmpty, !inputs.contains(where: { $0.name == name }) else { return inputs }
+        return [ObsInput(name: name, kind: "")] + inputs
+    }
+
+    private func label(for input: ObsInput) -> String {
+        if input.isVideoCapture { return "\(input.name) (\(String(localized: "capture device")))" }
+        if listed, !inputs.contains(input) { return "\(input.name) (\(String(localized: "Not found in OBS")))" }
+        return input.name
+    }
+
+    /// Kaynak seçilince adresiyle birlikte kaydedilir (çeviri sürüyorsa yeni kaynakla yeniden başlar).
+    private var selection: Binding<String?> {
+        Binding(get: { saved?.sourceName }, set: { name in
+            guard let name else { return }
+            model.settings.obsSource = ObsSourceTarget(address: address.trimmingCharacters(in: .whitespacesAndNewlines), sourceName: name)
+        })
+    }
+
+    private func connect() async {
+        error = nil
+        status = nil
+        if !password.isEmpty {
+            model.setObsPassword(password)
+            password = ""
+        }
+        connecting = true
+        defer { connecting = false }
+        do {
+            let found = try await model.obsInputs(address: address)
+            inputs = found
+            listed = true
+            guard !found.isEmpty else {
+                error = String(localized: "OBS has no sources with a picture. Add the capture card as a Video Capture Device first.")
+                return
+            }
+            status = String(localized: "Connected. Choose the capture card source.")
+            // Kayıtlı kaynak OBS'te varsa o kalır; yoksa ilk kaynak (capture card'lar önce gelir) seçilir.
+            let keep = saved.flatMap { target in found.first { $0.name == target.sourceName } }
+            selection.wrappedValue = (keep ?? found[0]).name
+        } catch {
+            let failure = (error as? ObsError)?.failure ?? .failed
+            self.error = ObsSourceReader.describe(failure, target: ObsSourceTarget(address: address, sourceName: ""))
+        }
+    }
+}
+
+/// Remote Play penceresinden okunurken hangi uygulama: seçim, açıklama ve kurulu olmayanların indirme düğmeleri
+/// (Ayarlar ve sihirbaz ortak).
+struct RemotePlayAppChoice: View {
+    @EnvironmentObject private var model: AppModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.space("m")) {
+            Picker("Remote Play app", selection: $model.settings.remotePlayApp) {
+                Text("Whichever is open").tag(RemotePlayApp.automatic)
+                Text("PS Remote Play (Sony)").tag(RemotePlayApp.sony)
+                Text("chiaki-ng").tag(RemotePlayApp.chiaki)
+            }
+            HintText(text: "Play in PS Remote Play or chiaki-ng on this Mac; CouchSubs reads only that window, so no second account is needed. Show the subtitles on the computer screen, and allow Screen Recording for CouchSubs when macOS asks.")
+            // Kurulu olanlar "Kurulu", olmayanlar resmi indirme sayfasına giden düğmeyle (ikisi de denenebilir).
+            HStack {
+                Text("PS Remote Play (Sony)")
+                Spacer()
+                if model.remotePlayInstalled(.sony) {
+                    Text("Installed").foregroundStyle(Color.csSecondary)
+                } else {
+                    Button("Download PS Remote Play") { model.openDownload(for: .sony) }.buttonStyle(.secondary)
+                }
+            }
+            HStack {
+                Text("chiaki-ng")
+                Spacer()
+                if model.remotePlayInstalled(.chiaki) {
+                    Text("Installed").foregroundStyle(Color.csSecondary)
+                } else {
+                    Button("Download chiaki-ng") { model.openDownload(for: .chiaki) }.buttonStyle(.secondary)
                 }
             }
         }

@@ -21,6 +21,14 @@ extension AppServices {
     /// Bu Mac'teki Remote Play penceresinden (PS Remote Play ya da chiaki-ng) okuyan görüntü kaynağı (bkz. `RemotePlayWindowStream`).
     func makeWindowStream(app: RemotePlayApp) -> StreamControlling { RemotePlayWindowStream(app: app) }
     func remotePlayInstalled(_ app: RemotePlayApp) -> Bool { RemotePlayWindowStream.isInstalled(app) }
+    /// OBS'teki bir kaynaktan (ör. capture card) obs-websocket ile okuyan görüntü kaynağı (bkz. `ObsSourceStream`).
+    func makeObsStream(target: ObsSourceTarget, password: @escaping @Sendable () -> String?) -> StreamControlling {
+        ObsSourceStream(target: target, password: password)
+    }
+    /// Ayarlar'daki kaynak listesi: OBS'e kısa bir bağlantı açar.
+    func obsInputs(endpoint: ObsEndpoint, password: String?) async throws -> [ObsInput] {
+        try await ObsSourceReader.listInputs(endpoint: endpoint, password: password)
+    }
     /// PS5'te o an çalışan oyun: yalnız bağlı PS5'in adresine keşif sorusu gider (ortak havuz için; bkz. `RunningGame`).
     func runningGame(host: String) async -> RunningGame? {
         guard let info = await Console.discover(timeout: .seconds(2), host: host).first else { return nil }
@@ -45,6 +53,10 @@ protocol AppServices: AnyObject {
     func makeWindowStream(app: RemotePlayApp) -> StreamControlling
     /// Seçilen Remote Play uygulaması (PS Remote Play ya da chiaki-ng) bu Mac'te kurulu mu.
     func remotePlayInstalled(_ app: RemotePlayApp) -> Bool
+    /// Görüntüyü OBS'teki kaynaktan alan kaynak (`UserSettings.frameSource`, `obsSource`); parola her bağlantıda okunur.
+    func makeObsStream(target: ObsSourceTarget, password: @escaping @Sendable () -> String?) -> StreamControlling
+    /// OBS'teki görüntülü kaynaklar (Ayarlar › Görüntü kaynağı).
+    func obsInputs(endpoint: ObsEndpoint, password: String?) async throws -> [ObsInput]
     /// `onMoved`: TV ağda yeni bir adreste bulununca çağrılır.
     /// `appConnected`: TV uygulaması bilgisayara bağlı mı (Samsung'da bağlıyken TV'ye dokunulmaz).
     /// `onKey`: TV bağlantıda yeni jeton verdi (Samsung); saklanır.
@@ -403,10 +415,24 @@ extension AppAppearance {
 
 @MainActor
 final class AppModel: ObservableObject {
-    enum Step: Int, CaseIterable {
+    /// Kurulum adımları. Hangilerinin gösterileceği görüntü kaynağına bağlıdır (`setupSteps`): PS5'e bağlanırken ikinci
+    /// hesap, PSN girişi ve PS5 eşleştirmesi; Remote Play penceresinde uygulama seçimi; OBS'te OBS bağlantısı.
+    enum Step: CaseIterable {
         /// `betterTranslation`: isteğe bağlı ücretsiz Gemini anahtarı; atlanabilir.
-        case welcome, secondAccount, psnLogin, console, tv, test, betterTranslation, done
+        case welcome, secondAccount, psnLogin, console, remotePlay, obs, tv, test, betterTranslation, done
     }
+
+    /// Seçilen görüntü kaynağına göre sihirbazın adımları (sırasıyla; `done` hariç). İlk adımda kaynak seçilir.
+    static func setupSteps(for source: FrameSource) -> [Step] {
+        let picture: [Step] = switch source {
+        case .ps5: [.secondAccount, .psnLogin, .console]
+        case .remotePlayWindow: [.remotePlay]
+        case .obsSource: [.obs]
+        }
+        return [.welcome] + picture + [.tv, .test, .betterTranslation]
+    }
+
+    var setupSteps: [Step] { Self.setupSteps(for: settings.frameSource) }
 
     @Published var step: Step {
         didSet {
@@ -418,6 +444,8 @@ final class AppModel: ObservableObject {
     @Published var console: RegisteredConsole?
     /// İkinci hesabın PS5 giriş şifresi Anahtarlık'ta kayıtlı.
     @Published private(set) var hasLoginPasscode: Bool
+    /// OBS'in WebSocket parolası Anahtarlık'ta kayıtlı.
+    @Published private(set) var hasObsPassword: Bool
     @Published var tv: LGTV?
     /// TV'nin eşleşme anahtarı kayıtlı.
     @Published private var tvKeySaved: Bool
@@ -441,8 +469,10 @@ final class AppModel: ObservableObject {
             pipeline?.showSpeakerNames = settings.showSpeakerNames
             if settings.appearance != oldValue.appearance { settings.appearance.apply() }
             let windowAppChanged = settings.frameSource == .remotePlayWindow && settings.remotePlayApp != oldValue.remotePlayApp
-            if settings.frameSource != oldValue.frameSource || windowAppChanged, isRunning {
-                // Görüntü kaynağı (ya da okunan Remote Play uygulaması) değişti: çeviri yeni kaynakla yeniden başlar.
+            let obsSourceChanged = settings.frameSource == .obsSource && settings.obsSource != oldValue.obsSource
+            if settings.frameSource != oldValue.frameSource || windowAppChanged || obsSourceChanged, isRunning {
+                // Görüntü kaynağı (ya da okunan Remote Play uygulaması, OBS kaynağı) değişti: çeviri yeni kaynakla
+                // yeniden başlar. Seçilen OBS kaynağı eksikse (ör. adres siliniyor) başlamaz; durur.
                 stop()
                 Task { await start() }
             }
@@ -582,9 +612,10 @@ final class AppModel: ObservableObject {
         let paired = tv != nil && tvKeySaved
         let loaded = defaults.data(forKey: StoreKey.settings).flatMap { try? JSONDecoder().decode(UserSettings.self, from: $0) } ?? UserSettings()
         let ready = Self.setupIsComplete(store: store, accountId: accountId, console: console, paired: paired,
-                                         readsWindow: loaded.frameSource == .remotePlayWindow)
+                                         readsWindow: !loaded.frameSource.needsPS5)
         self.tvKeySaved = tvKeySaved
         hasLoginPasscode = LoginPasscode.normalized(store.load(String.self, for: StoreKey.loginPasscode)) != nil
+        hasObsPassword = !(store.load(String.self, for: StoreKey.obsPassword) ?? "").isEmpty
         self.accountId = accountId
         self.console = console
         self.tv = tv
@@ -779,23 +810,36 @@ final class AppModel: ObservableObject {
 
     var canAdvance: Bool {
         switch step {
-        case .welcome, .secondAccount, .test, .betterTranslation: true
+        case .welcome, .secondAccount, .remotePlay, .test, .betterTranslation: true
         case .psnLogin: accountId != nil
         case .console: console != nil
+        case .obs: settings.obsSource?.isComplete == true
         case .tv: hasTV || settings.output == .computer
         case .done: false
         }
     }
 
     func advance() {
-        guard canAdvance, let next = Step(rawValue: step.rawValue + 1) else { return }
-        step = next
+        guard canAdvance else { return }
+        skipStep()
+    }
+
+    /// İsteğe bağlı adımı geçer (ör. OBS henüz açık değil; kaynak sonra Ayarlar'da seçilir).
+    func skipStep() {
+        let steps = setupSteps
+        guard step != .done, let index = steps.firstIndex(of: step) else { return }
+        step = index + 1 < steps.count ? steps[index + 1] : .done
     }
 
     func back() {
-        guard let previous = Step(rawValue: step.rawValue - 1) else { return }
-        step = previous
+        let steps = setupSteps
+        guard let index = step == .done ? steps.count : steps.firstIndex(of: step) else { return step = .welcome }
+        if index > 0 { step = steps[index - 1] }
     }
+
+    /// Karşılama ekranındaki seçim: görüntü PS5'ten mi, bu Mac'teki Remote Play penceresinden mi, OBS'ten mi okunur.
+    /// Sihirbazın kalan adımları ve Ayarlar buna göre değişir.
+    func chooseFrameSource(_ source: FrameSource) { settings.frameSource = source }
 
     /// Ücretsiz Gemini anahtarı kayıtlı ve çeviri Gemini ile yapılıyor ("Daha iyi çeviri" adımı tamam).
     var usesFreeGemini: Bool { settings.translationEngine == .gemini && hasKey(.gemini) }
@@ -893,17 +937,8 @@ final class AppModel: ObservableObject {
         advance()
     }
 
-    /// Sihirbazdaki "İkinci hesap yok mu?": görüntü bu Mac'teki PS Remote Play penceresinden okunur. PSN girişi, PS5
-    /// eşleştirmesi ve TV adımı atlanır, kurulum biter; TV eşleşmemişse altyazı bilgisayar ekranında gösterilir (TV ve
-    /// daha iyi çeviri sonra Ayarlar'dan).
-    func useRemotePlayWindow() {
-        settings.frameSource = .remotePlayWindow
-        if !hasTV { settings.output = .computer }
-        step = .done
-    }
-
     /// Görüntü PS5'ten (ikinci hesap) alınacak ama hesap ya da PS5 eşleşmesi yok: Ayarlar'da "Hesabı bağla" görünür.
-    var needsPS5Link: Bool { settings.frameSource == .ps5 && (accountId == nil || console == nil) }
+    var needsPS5Link: Bool { settings.frameSource.needsPS5 && (accountId == nil || console == nil) }
 
     /// Ayarlar › Görüntü kaynağı › "Hesabı bağla": sihirbaz ikinci hesap adımından açılır (PSN girişi, PS5 eşleştirmesi).
     func linkPS5Account() { step = .secondAccount }
@@ -1197,9 +1232,11 @@ final class AppModel: ObservableObject {
     func start() async {
         // Düğmeye iki kez basılması ya da beklerken tekrar çağrılması ikinci bir oturum açmaz.
         guard !isRunning, !isStarting, canStart else { return }
-        // PS5'e bağlanmak için eşleşmiş PS5 ve ikinci hesap gerekir; PS Remote Play penceresinden okumak için gerekmez.
+        // PS5'e bağlanmak için eşleşmiş PS5 ve ikinci hesap gerekir; PS Remote Play penceresinden ya da OBS'ten okumak
+        // için gerekmez.
         let readsWindow = settings.frameSource == .remotePlayWindow
-        guard readsWindow || (console != nil && accountId != nil) else { return }
+        let obsTarget = settings.frameSource == .obsSource ? settings.obsSource.flatMap { $0.isComplete ? $0 : nil } : nil
+        guard readsWindow || obsTarget != nil || (console != nil && accountId != nil) else { return }
         isStarting = true
         defer { isStarting = false }
 
@@ -1213,10 +1250,14 @@ final class AppModel: ObservableObject {
         if settings.dubbing.enabled, dubbingModelReady { makeDubber().prepare() }
         SubtitleLog.write("oturum başladı: CouchSubs \(AppIdentity.version), \(settings.sourceLanguage)→\(settings.targetLanguage), "
             + "motor: \(onlineTranslationActive ? settings.onlineEngine.rawValue : "ücretsiz"), paketler: \(settings.gamePacks ? "açık" : "kapalı"), "
-            + "görüntü: \(readsWindow ? "PS Remote Play penceresi" : "PS5")")
+            + "görüntü: \(readsWindow ? "PS Remote Play penceresi" : obsTarget != nil ? "OBS kaynağı" : "PS5")")
 
         let session: StreamControlling
-        if readsWindow {
+        if let obsTarget {
+            RemotePlayLog.write("Çeviri başladı; görüntü OBS'ten (\(obsTarget.address), kaynak: \(obsTarget.sourceName))")
+            let store = self.store
+            session = services.makeObsStream(target: obsTarget) { [store] in store.load(String.self, for: StoreKey.obsPassword) }
+        } else if readsWindow {
             RemotePlayLog.write("Çeviri başladı; görüntü bu Mac'teki Remote Play penceresinden (\(settings.remotePlayApp.rawValue))")
             session = services.makeWindowStream(app: settings.remotePlayApp)
         } else if let console, let accountId {
@@ -1260,8 +1301,12 @@ final class AppModel: ObservableObject {
     /// Çeviri başlatılabilir mi: görüntü kaynağı hazır (PS5 kurulu ya da PS Remote Play penceresi seçili) ve altyazının
     /// gideceği bir yer var (TV eşleşmiş ya da bilgisayar ekranı seçili).
     var canStart: Bool {
-        (settings.frameSource == .remotePlayWindow || (console != nil && accountId != nil))
-            && (settings.output.showsOnComputer || hasTV)
+        let sourceReady = switch settings.frameSource {
+        case .ps5: console != nil && accountId != nil
+        case .remotePlayWindow: true
+        case .obsSource: settings.obsSource?.isComplete == true
+        }
+        return sourceReady && (settings.output.showsOnComputer || hasTV)
     }
 
     /// TV uygulamasını başlatır ve açık tutar; TV kapalıysa açıldığında bağlanır. Altyazı TV'ye gitmiyorsa ya da TV
@@ -1622,6 +1667,27 @@ final class AppModel: ObservableObject {
         hasLoginPasscode = false
     }
 
+    /// OBS'in WebSocket parolası (Anahtarlık). Çeviri sürüyorsa OBS'e yeni parolayla hemen yeniden bağlanılır.
+    func setObsPassword(_ value: String) {
+        let password = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !password.isEmpty else { return removeObsPassword() }
+        store.save(password, for: StoreKey.obsPassword)
+        hasObsPassword = true
+        if isRunning, settings.frameSource == .obsSource { session?.reconnectNow() }
+    }
+
+    func removeObsPassword() {
+        store.remove(StoreKey.obsPassword)
+        hasObsPassword = false
+        if isRunning, settings.frameSource == .obsSource { session?.reconnectNow() }
+    }
+
+    /// Ayarlar'daki "Bağlan ve kaynakları listele": kayıtlı parolayla OBS'e bağlanır. Hatalar `ObsError`'dır.
+    func obsInputs(address: String) async throws -> [ObsInput] {
+        guard let endpoint = ObsEndpoint.parse(address) else { throw ObsError(.invalidAddress) }
+        return try await services.obsInputs(endpoint: endpoint, password: store.load(String.self, for: StoreKey.obsPassword))
+    }
+
     func stop() {
         session?.stop()
         session = nil
@@ -1714,11 +1780,27 @@ final class AppModel: ObservableObject {
 
     /// Ana ekrandaki PS5 durumu (eşleşmiş PS5'in adıyla).
     var ps5StatusText: String {
+        if settings.frameSource == .obsSource {
+            return Self.obsStatusText(sessionState, running: isRunning, target: settings.obsSource)
+        }
         if settings.frameSource == .remotePlayWindow {
             return Self.windowStatusText(sessionState, running: isRunning, installed: !remotePlayMissing)
         }
         return Self.statusText(sessionState, running: isRunning, pairedName: console.map { $0.name.isEmpty ? "PS5" : $0.name })
     }
+
+    /// Görüntü OBS kaynağından okunurken durumun metni; bağlantı hatası ne yapılacağını söyler (bkz. `ObsSourceStream`).
+    static func obsStatusText(_ state: SessionState, running: Bool, target: ObsSourceTarget?) -> String {
+        switch state {
+        case .streaming: return ObsSourceReader.statusText(.streaming, running: running, target: target)
+        case .connecting: return ObsSourceReader.statusText(.connecting, running: running, target: target)
+        case .disconnected(.other(let detail)) where running && !detail.isEmpty && target?.isComplete == true: return detail
+        case .disconnected: return ObsSourceReader.statusText(.stopped, running: running, target: target)
+        }
+    }
+
+    /// Ana ekrandaki görüntü kaynağı kutusunun başlığı.
+    var sourceTitle: String { settings.frameSource == .obsSource ? "OBS" : "PS5" }
 
     /// Görüntü bu Mac'teki Remote Play penceresinden okunurken durumun metni.
     static func windowStatusText(_ state: SessionState, running: Bool, installed: Bool = true) -> String {

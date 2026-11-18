@@ -1,0 +1,17 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-only -->
+<!-- Seçilen pencereden okunurken hangi pencere (OBS projektörü, capture card uygulaması, oyun penceresi); Ayarlar ve sihirbaz ortak. -->
+<UserControl x:Class="CouchSubs.App.Views.Steps.CaptureWindowSetup"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:t="clr-namespace:CouchSubs.App.Theme">
+    <StackPanel>
+        <TextBlock Text="{t:T 'Open an OBS projector or game window, then select it below. Only that window is read: CouchSubs never switches to the whole desktop when it closes.'}"
+                   Style="{StaticResource HintText}" TextWrapping="Wrap" Margin="0,0,0,8" />
+        <DockPanel>
+            <Button Content="{t:T 'Refresh windows'}" DockPanel.Dock="Right" Margin="10,0,0,0" Click="OnRefresh" />
+            <ComboBox x:Name="WindowChoice" MinWidth="250" SelectionChanged="OnWindowChanged" />
+        </DockPanel>
+        <TextBlock x:Name="EmptyText" Style="{StaticResource HintText}" Margin="0,8,0,0"
+                   Text="{t:T 'No suitable windows found. Open OBS or the game first, then refresh.'}" />
+    </StackPanel>
+</UserControl>

@@ -1,0 +1,30 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-only -->
+<!-- Remote Play penceresinden okunurken hangi uygulama; kurulu olmayanlar için resmi indirme düğmeleri (Ayarlar ve sihirbaz ortak). -->
+<UserControl x:Class="CouchSubs.App.Views.Steps.RemotePlaySetup"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:t="clr-namespace:CouchSubs.App.Theme">
+    <StackPanel>
+        <StackPanel Orientation="Horizontal">
+            <TextBlock Text="{t:T 'Remote Play app'}" VerticalAlignment="Center" Margin="0,0,16,0" />
+            <ComboBox x:Name="AppChoice" SelectionChanged="OnApp" MinWidth="260">
+                <ComboBoxItem Content="{t:T 'Whichever is open'}" Tag="Automatic" />
+                <ComboBoxItem Content="{t:T 'PS Remote Play (Sony)'}" Tag="Sony" />
+                <ComboBoxItem Content="{t:T 'chiaki-ng'}" Tag="Chiaki" />
+            </ComboBox>
+        </StackPanel>
+        <TextBlock Style="{StaticResource HintText}" TextWrapping="Wrap" Margin="0,12,0,0"
+                   Text="{t:T 'Play in PS Remote Play or chiaki-ng on this PC; CouchSubs reads only that window, so no second account is needed. Show the subtitles on the computer screen.'}" />
+        <!-- Kurulu olanlar "Kurulu", olmayanlar resmi indirme sayfasına giden düğmeyle (ikisi de denenebilir). -->
+        <Grid Margin="0,12,0,0">
+            <TextBlock Text="{t:T 'PS Remote Play (Sony)'}" VerticalAlignment="Center" />
+            <TextBlock x:Name="SonyInstalledText" Style="{StaticResource HintText}" Text="{t:T 'Installed'}" HorizontalAlignment="Right" VerticalAlignment="Center" />
+            <Button x:Name="SonyDownloadButton" Content="{t:T 'Download PS Remote Play'}" HorizontalAlignment="Right" Click="OnDownloadSony" />
+        </Grid>
+        <Grid Margin="0,8,0,0">
+            <TextBlock Text="{t:T 'chiaki-ng'}" VerticalAlignment="Center" />
+            <TextBlock x:Name="ChiakiInstalledText" Style="{StaticResource HintText}" Text="{t:T 'Installed'}" HorizontalAlignment="Right" VerticalAlignment="Center" />
+            <Button x:Name="ChiakiDownloadButton" Content="{t:T 'Download chiaki-ng'}" HorizontalAlignment="Right" Click="OnDownloadChiaki" />
+        </Grid>
+    </StackPanel>
+</UserControl>

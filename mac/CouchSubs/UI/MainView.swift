@@ -105,7 +105,7 @@ struct MainControls: View {
                 TestSubtitleButton()
             }
             HStack(alignment: .top, spacing: Theme.space("gap")) {
-                StatusTile(symbol: "gamecontroller", title: "PS5", value: model.ps5StatusText,
+                StatusTile(symbol: "gamecontroller", title: LocalizedStringKey(model.sourceTitle), value: model.ps5StatusText,
                            tone: AppModel.ps5Tone(model.sessionState, running: model.isRunning))
                 // Altyazı yalnız bilgisayar ekranındaysa TV durumu gösterilmez.
                 if model.settings.output.showsOnTV { TVStatusTile() }
