@@ -192,18 +192,48 @@ belleği gerekir (aşağıda).
 ### 1. Bu sürümü edinin
 
 Capture card / OBS kaynağı, kaynağa göre değişen kurulum sihirbazı ve seçici şimdilik bu depodaki
-`feat/windows-obs-websocket` dalındadır; resmî sürümde (yukarıdaki İndir bağlantıları) henüz yoktur. Windows paketi
-GitHub Actions'ta derlenir:
+`feat/windows-obs-websocket` dalındadır; resmî sürümde (yukarıdaki İndir bağlantıları) henüz yoktur. İki yol var:
+
+**A. Kendi bilgisayarınızda derleyin (önerilen, 10-15 dakika)**
+
+1. PowerShell'i açıp gereken araçları bir kez kurun, sonra PowerShell'i kapatıp yeniden açın:
+   ```powershell
+   winget install Git.Git
+   winget install Microsoft.DotNet.SDK.10
+   winget install Python.Python.3.12
+   winget install Microsoft.VCRedist.2015+.x64
+   ```
+2. Kodu indirin:
+   ```powershell
+   git clone -b feat/windows-obs-websocket https://github.com/befega/couchsubs.git
+   cd couchsubs
+   ```
+3. Derleyin:
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File scripts\build-windows-local.ps1
+   ```
+   Betik araçları denetler, uygulamayı derler, ücretsiz çeviri motorunu (CTranslate2) sabit sürüm ve özetle indirip
+   dener. Önce testleri de koşmak için sona `-Test` ekleyin.
+4. `publish\CouchSubs\CouchSubs.exe`'yi açın. Klasörü istediğiniz yere taşıyabilirsiniz; kurulum gerekmez. Yeni
+   değişiklikleri almak için klasörde `git pull` yapıp 3. adımı yeniden çalıştırın.
+
+Bu hafif derlemede PS5'e doğrudan bağlanma (ikinci PSN hesabıyla; MSYS2 ile derlenen yerel kütüphane ister) ve Türkçe
+dublaj yoktur. OBS kaynağı, pencere kaynakları, bütün çeviri motorları, seçici ve OBS katmanı çalışır.
+
+**B. GitHub Actions ile tam paket**
+
+Depodaki **windows** iş akışı `feat/windows-*` dallarında kurulum dosyası dahil tam paketi derler (GitHub hesabınızda
+Actions kullanılabilir olmalı):
 
 1. Depoda **Actions** sekmesini açın. Fork'ta ilk kez açıyorsanız **I understand my workflows, go ahead and enable them**'a
    basın.
-2. Soldan **windows** iş akışını seçin. Dala gönderim olduysa çalışma kendiliğinden başlar; yoksa **Run workflow** ile
-   dalı `feat/windows-obs-websocket` seçip başlatın. Derleme uzun sürer (yarım saati bulabilir).
-3. Biten çalışmanın altındaki **Artifacts** bölümünden indirin:
-   - `couchsubs-windows-installer`: içindeki `CouchSubs-windows-Setup.exe` ile kurulum
-   - `couchsubs-windows`: kurulumsuz klasör; `CouchSubs.exe` ile açılır
-4. "Windows bilgisayarınızı korudu" uyarısında **Ek bilgi › Yine de çalıştır**'a basın (paket imzasızdır). Güvenlik
-   duvarı sorarsa **Özel ağlar**'a izin verin.
+2. Soldan **windows** iş akışını seçin, **Run workflow** ile dalı `feat/windows-obs-websocket` seçip başlatın. Derleme
+   uzun sürer (yarım saati bulabilir).
+3. Biten çalışmanın altındaki **Artifacts** bölümünden `couchsubs-windows-installer`'ı (içinde
+   `CouchSubs-windows-Setup.exe`) ya da kurulumsuz `couchsubs-windows` klasörünü indirin.
+
+İki yolda da "Windows bilgisayarınızı korudu" uyarısında **Ek bilgi › Yine de çalıştır**'a basın (uygulama imzasızdır).
+Güvenlik duvarı sorarsa **Özel ağlar**'a izin verin.
 
 > **Güncelleme uyarısı:** Bu derlemenin sürümü `0.1.0-dev`'dir. Uygulama resmî sürüme güncellemeyi önerirse
 > **kabul etmeyin**; resmî sürüm bu derlemenin yerine geçer ve OBS kaynağı ile seçici kaybolur.
