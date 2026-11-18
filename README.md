@@ -14,6 +14,11 @@ gönderilir. Ayrıntılar: [Gizlilik](PRIVACY.md). Ücretsiz ve açık kaynaklı
 
 *English below.*
 
+> **Yayıncılar için (Windows):** Capture card ve OBS ile yayın yapıyorsanız CouchSubs görüntüyü doğrudan OBS'den okuyabilir;
+> ikinci PSN hesabı, PS5 eşleştirmesi ya da TV gerekmez. Birden çok çeviri motorunu (DeepL, yerel Gemma, ücretsiz
+> OPUS-MT) aynı anda çalıştırıp en iyi çeviriyi seçen **seçici** de var. Adım adım kurulum:
+> **[Yayıncılar için: capture card ve OBS ile kurulum](#yayıncılar-için-capture-card-ve-obs-ile-kurulum-windows)**.
+
 ## Oyunda nasıl görünüyor
 
 Mafia: The Old Country, PS5'te İngilizce oynanıyor; Türkçe altyazı TV'de oyunun üstünde, CouchSubs bilgisayarda çalışıyor.
@@ -164,6 +169,162 @@ istiyorsa **API anahtarı (isteğe bağlı)** alanına yazın. İlk istek modeli
 Bağlantıyı dene bunu da bekler. Çeviriler sunucu adresi ve model adıyla ayrı saklanır; modeli değiştirince eski
 modelin çevirileri karışmaz.
 
+## Yayıncılar için: capture card ve OBS ile kurulum (Windows)
+
+PS5'i capture card ile bilgisayara bağlayıp OBS'den (Kick, Twitch, YouTube) yayın yapıyorsanız CouchSubs oyun görüntüsünü
+**OBS'deki capture card kaynağından** okur. Capture card'ı CouchSubs açmaz, OBS tutmaya devam eder: CouchSubs OBS'nin
+kendi WebSocket sunucusundan yalnız o kaynağın anlık görüntüsünü ister (saniyede en çok 8 kare). Yayına, kayda ve
+sahnelere dokunulmaz. Türkçe altyazı yayına OBS'deki bir tarayıcı kaynağıyla eklenir; CouchSubs sahneyi değil kaynağın
+kendisini okuduğu için kendi altyazısını yeniden okumaz.
+
+```
+PS5 ──HDMI──▶ Capture card ──▶ OBS ──────────────────────────▶ Yayın / kayıt
+                                │  ▲
+             obs-websocket:     │  │  Tarayıcı kaynağı: http://localhost:8787/obs
+             kaynağın görüntüsü ▼  │  (Türkçe altyazı katmanı)
+                               CouchSubs ── okur → çevirir
+```
+
+Bu yolda **ikinci PSN hesabı, PS5 eşleştirmesi ve TV gerekmez**. Önerilen bilgisayar: ekran kartı NVIDIA olan bir Windows
+10/11 (ör. RTX 3090). Yazı tanıma ve ücretsiz çeviri bilgisayarda çalışır; yerel yapay zekâ modeli için ekran kartı
+belleği gerekir (aşağıda).
+
+### 1. Bu sürümü edinin
+
+Capture card / OBS kaynağı, kaynağa göre değişen kurulum sihirbazı ve seçici şimdilik bu depodaki
+`feat/windows-obs-websocket` dalındadır; resmî sürümde (yukarıdaki İndir bağlantıları) henüz yoktur. Windows paketi
+GitHub Actions'ta derlenir:
+
+1. Depoda **Actions** sekmesini açın. Fork'ta ilk kez açıyorsanız **I understand my workflows, go ahead and enable them**'a
+   basın.
+2. Soldan **windows** iş akışını seçin. Dala gönderim olduysa çalışma kendiliğinden başlar; yoksa **Run workflow** ile
+   dalı `feat/windows-obs-websocket` seçip başlatın. Derleme uzun sürer (yarım saati bulabilir).
+3. Biten çalışmanın altındaki **Artifacts** bölümünden indirin:
+   - `couchsubs-windows-installer`: içindeki `CouchSubs-windows-Setup.exe` ile kurulum
+   - `couchsubs-windows`: kurulumsuz klasör; `CouchSubs.exe` ile açılır
+4. "Windows bilgisayarınızı korudu" uyarısında **Ek bilgi › Yine de çalıştır**'a basın (paket imzasızdır). Güvenlik
+   duvarı sorarsa **Özel ağlar**'a izin verin.
+
+> **Güncelleme uyarısı:** Bu derlemenin sürümü `0.1.0-dev`'dir. Uygulama resmî sürüme güncellemeyi önerirse
+> **kabul etmeyin**; resmî sürüm bu derlemenin yerine geçer ve OBS kaynağı ile seçici kaybolur.
+
+### 2. OBS'yi hazırlayın
+
+1. **OBS 28 veya sonrası** kullanın (WebSocket sunucusu OBS'nin içinde gelir).
+2. Capture card'ı bir sahneye **Video Yakalama Aygıtı** olarak ekleyin ve kaynağın adını not edin (ör. `Elgato HD60 X`).
+   Kaynak **bir sahnede görünür** olmalı; gizli ya da hiçbir sahnede olmayan kaynağın görüntüsü alınamaz.
+3. **Araçlar › WebSocket Sunucu Ayarları**'nı açın, **WebSocket sunucusunu etkinleştir**'i işaretleyin (port `4455`).
+4. **Bağlantı Bilgilerini Göster**'e basıp parolayı kopyalayın.
+
+OBS başka bir bilgisayardaysa adres `IP:4455` olur (ör. `192.168.1.20:4455`); o bilgisayarın güvenlik duvarında 4455
+portuna izin verin.
+
+### 3. CouchSubs kurulum sihirbazı
+
+1. **CouchSubs'a hoş geldiniz:** konsol olarak **PlayStation 5**'i, "CouchSubs oyun görüntüsünü nereden alsın?" sorusunda
+   **OBS'deki capture card (obs-websocket)**'u seçin. Sihirbaz buna göre kısalır; PSN girişi ve PS5 eşleştirmesi hiç
+   sorulmaz.
+2. **OBS'ye bağlanın:** adres (aynı bilgisayarda `localhost:4455`) ve parolayı yazıp **Bağlan ve kaynakları listele**'ye
+   basın. Listeden capture card kaynağını seçin; yakalama aygıtları listede en üsttedir. OBS o an kapalıysa **Şimdilik
+   geç** ile devam edip kaynağı sonra **Ayarlar › Görüntü kaynağı**'ndan seçebilirsiniz.
+3. **TV'nizi bağlayın:** yayında TV gerekmez; **TV'm yok, bilgisayar ekranında göster**'i seçin.
+4. **Çeviri modelini indirin** (ücretsiz çeviri, yaklaşık 475 MB), test adımını geçin. "Daha iyi çeviri" adımı
+   isteğe bağlıdır.
+
+OBS kullanmadan bir pencereden okumak isterseniz (ör. OBS projektörü ya da capture card'ın kendi uygulaması) ilk adımda
+**Capture card penceresi (OBS projektörü ya da yakalama uygulaması)**'nı seçin; sihirbaz sizden pencereyi seçmenizi ister.
+
+### 4. Altyazıyı yayına ekleyin
+
+1. CouchSubs'ta **Ayarlar › OBS katmanı**'ndaki adresi kopyalayın (aynı bilgisayarda `http://localhost:8787/obs`).
+2. OBS'de sahneye **Tarayıcı** kaynağı ekleyin, adresi yapıştırın, genişliği `1920`, yüksekliği `1080` yapın ve
+   kaynağı capture card'ın **üstüne** koyun.
+3. **Ayarlar › Altyazı alanı**'nda oyunun İngilizce altyazısının olduğu bölgeyi ayarlayın (çoğu oyunda **Alt bölge**).
+   Oyunda İngilizce altyazının açık olması gerekir.
+4. Ana ekranda **Çeviriyi başlat**'a basın. Kutuda "OBS'den *kaynak adı* okunuyor" yazmalıdır.
+
+### 5. Çeviri motorları
+
+| Motor | Nerede çalışır | Ne gerekir | Not |
+|---|---|---|---|
+| **Ücretsiz (OPUS-MT)** | Bu bilgisayarda | Hiçbir şey (model sihirbazda iner) | En hızlısı. **Ayarlar › Çeviri › Ücretsiz çeviri aygıtı**'nda **GPU (Beta) · NVIDIA CUDA** seçilebilir |
+| **DeepL** | İnternette | Kendi DeepL API anahtarınız | Ücretsiz anahtar ayda 500.000 karakter; doğal Türkçe |
+| **Yerel model** (ör. Gemma) | Bu bilgisayarda (Ollama, LM Studio) | Ekran kartı belleği | Anahtar, kota, ücret yok; metin bilgisayardan çıkmaz |
+| Gemini, OpenAI, Claude | İnternette | Kendi API anahtarınız | Ücretlendirme ilgili hesaba yapılır |
+
+**DeepL**
+
+1. [deepl.com/pro-api](https://www.deepl.com/pro-api)'den ücretsiz **DeepL API Free** anahtarı alın (`:fx` ile biter).
+2. **Ayarlar › Çeviri › Çeviri motoru › DeepL**'i seçin, anahtarı yapıştırıp **Kaydet ve dene**'ye basın. Bu ayki
+   kullanım görünür.
+
+**Ollama ile yerel Gemma (RTX 3090 gibi ekran kartları için)**
+
+1. [ollama.com/download](https://ollama.com/download)'dan Ollama'yı kurup açın.
+2. PowerShell'de modeli indirin:
+   ```powershell
+   ollama pull gemma3:12b
+   ```
+   `gemma3:12b` ekran kartında yaklaşık 9-10 GB yer tutar; 24 GB'lık bir kartta OBS'nin kodlayıcısıyla birlikte rahat
+   çalışır. `gemma3:27b` daha iyi çevirebilir ama yaklaşık 20 GB ister ve daha yavaştır; yayın sırasında kartı zorlayabilir.
+   Daha hızlı bir seçenek: `qwen2.5:7b`.
+3. Modelin bellekte kalması için (aradan sonra gelen ilk satır modelin yüklenmesini beklemesin) bir kez şunu çalıştırıp
+   Ollama'yı yeniden başlatın:
+   ```powershell
+   setx OLLAMA_KEEP_ALIVE -1
+   ```
+4. CouchSubs'ta **Ayarlar › Çeviri › Çeviri motoru › Yerel model (Ollama, LM Studio)**'yu seçin, **Ollama'yı kullan**'a
+   basın (adres `http://localhost:11434/v1`), **Model adı**'na `gemma3:12b` yazıp **Bağlantıyı dene**'ye basın. İlk
+   deneme modeli belleğe yüklediği için uzun sürebilir.
+
+LM Studio için aynı yerde **LM Studio'yu kullan**'a basın (adres `http://localhost:1234/v1`) ve model adını LM Studio'da
+göründüğü gibi yazın. Ayrıntılar: [Yerel yapay zekâ ile çeviri](#yerel-yapay-zekâ-ile-çeviri-ollama-lm-studio).
+
+### 6. Seçici: birden çok motorun en iyisi
+
+Seçici her satırı seçtiğiniz motorların hepsine **aynı anda** gönderir ve en iyi çeviriyi saniyenin çok altında seçer.
+Yapay zekâ hakemi kullanılmaz, karar kurallarla verilir:
+
+- Elenir ya da kaybeder: hiç çevrilmeden dönen satır, çeviride kalan İngilizce kelimeler, kaybolan özel adlar
+  (Franklin, Los Santos; Türkçe ek alabilir: *Franklin'e*), tuhaf uzunluk, modelin açıklama yazması ("Çeviri: …") ya da
+  kendini tekrar etmesi.
+- Kazanır: motorların üzerinde **uzlaştığı** çeviri (iki motorun benzer bulduğu çeviri genelde doğrudur).
+- Eşitlikte öncelik: DeepL, Claude, OpenAI, Gemini, yerel model, ücretsiz.
+
+Kurulum:
+
+1. Kullanmak istediğiniz motorları önce tek tek kurun (yukarıda): DeepL anahtarı, yerel model (adres ve model adı).
+   Yerel modeli kurduktan sonra **Çeviri motoru**'nu yeniden DeepL'e alabilirsiniz; seçici yerel modelin ayarını yine
+   kullanır.
+2. **Ayarlar › Çeviri › Seçici**'de **Birden çok motorun en iyisini seç (seçici)**'yi işaretleyin.
+3. Yarışacak motorları seçin (varsayılan: DeepL, yerel model, ücretsiz). Kurulu olmayan motorlar soluk görünür ve
+   "kurulu değil" yazar; altta şu an hangi motorların yarıştığı yazar. En az iki kurulu motor gerekir; seçici yalnız
+   İngilizceden Türkçeye çeviride çalışır.
+
+Gecikme ve kota:
+
+- Altyazı yavaş motorları **en fazla 0,7 saniye** bekler; hepsi erken biterse beklenmez. Süre dolduğunda gelmeyen motor
+  arka planda biter ve çevirisi önbelleğe girer; aynı satır yeniden geldiğinde hazırdır.
+- DeepL'e bağlantı çeviri sürerken **açık tutulur**: bağlantı 5 dakika boşta kapanmaz ve 40 saniyede bir DeepL'in
+  kullanım sorgusuyla yoklanır (bu sorgu kotadan düşmez). Diyalogsuz bir sahneden sonraki ilk satır bağlantı kurulmasını
+  beklemez.
+- Her satır DeepL'e de gittiği için **DeepL kotası daha hızlı biter**. Oyun paketlerinde ve önbellekte bulunan satırlar
+  hiçbir motora gitmez.
+- Hangi motorun neden seçildiği altyazı günlüğüne yazılır (`%LOCALAPPDATA%\CouchSubs\altyazi.log`), ör.
+  `seçici: DeepL (DeepL 1.85, gemma3:12b 1.71, OPUS-MT 0.62; 240 ms)`.
+
+### Sorun giderme
+
+| Ana ekranda / ayarlarda | Ne yapmalı |
+|---|---|
+| *OBS'ye ulaşılamadı* | OBS açık mı, **Araçlar › WebSocket Sunucu Ayarları**'nda sunucu etkin mi, adres ve port doğru mu bakın. OBS başka bilgisayardaysa güvenlik duvarında 4455'e izin verin. |
+| *OBS, WebSocket parolasını kabul etmedi* | Parolayı **Bağlantı Bilgilerini Göster**'den yeniden kopyalayın; **Ayarlar › Görüntü kaynağı**'nda eski parolayı **Kaldır**'ıp yenisini yazın. |
+| *OBS'de … adında bir kaynak yok* | Kaynağın adı OBS'de değişmiş; **Bağlan ve kaynakları listele** ile yeniden seçin. |
+| *OBS, … kaynağının görüntüsünü alamadı* | Kaynak hiçbir sahnede görünür değil; bir sahneye ekleyin ya da gizliyse gösterin. |
+| *Bu OBS sürümü çok eski* | OBS 28 veya sonrasına geçin. |
+| Altyazı okunmuyor | Oyunda İngilizce altyazı açık mı, **Ayarlar › Altyazı alanı** doğru bölgede mi bakın. |
+| Yerel model uyarısı | Ollama açık mı, model indirildi mi (`ollama list`), adres ve model adı doğru mu bakın. Seçicide yerel model yanıt vermezse diğer motorlar çevirmeye devam eder. |
+
 ## Gizlilik
 
 CouchSubs hesap şifrenizi görmez (giriş doğrudan Sony'nin sayfasında yapılır), altyazıları ve oyun
@@ -264,6 +425,13 @@ Windows are tested on real hardware.
 [translation](docs/screenshots/windows/ceviri.png), [game packs](docs/screenshots/windows/paketler.png),
 [subtitle window](docs/screenshots/windows/pencere.png)) and the design of the phone app
 ([docs/screenshots/telefon](docs/screenshots/telefon)). Everything is free, game packs included; no account is needed.
+
+**Streamers (Windows, capture card + OBS):** on the `feat/windows-obs-websocket` branch CouchSubs can read the game picture
+straight from the capture card source in OBS through OBS's built-in WebSocket server (no second PSN account, PS5 pairing
+or TV needed); the first setup screen asks where the picture comes from and the rest of the wizard follows that choice.
+A **conductor** sends each line to several engines at once (DeepL, a local model such as Gemma through Ollama, the free
+OPUS-MT) and picks the best translation by rules in well under a second, waiting at most 0.7 s; the DeepL connection is
+kept warm while translating. Step-by-step guide (Turkish): [Yayıncılar için](#yayıncılar-için-capture-card-ve-obs-ile-kurulum-windows).
 
 **Setup:** open the app and follow the setup assistant. On the TV step it shows how to turn on developer mode for your
 TV brand and then installs the TV app by itself (LG: type the on-screen passphrase once; Samsung: sign in with a
