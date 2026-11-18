@@ -44,6 +44,28 @@ public class DeepLTranslatorTests
         return Json(JsonSerializer.Serialize(new { translations = texts.Select(t => new { text = "[tr] " + t }) }));
     }
 
+    /// <summary>
+    /// Bağlantı uyanık tutulurken DeepL'e çeviri değil kullanım sorgusu gider (kotadan düşmez); çeviri başlar başlamaz
+    /// bağlantı kurulur. Test istemcisinde (keepWarm verilmezse) yoklama yoktur.
+    /// </summary>
+    [Fact]
+    public async Task KeepingTheConnectionWarmOnlyAsksForUsage()
+    {
+        var deepL = new FakeDeepL((request, body) => request.RequestUri!.AbsolutePath.EndsWith("/usage")
+            ? Json("""{"character_count":1,"character_limit":500000}""") : Echo(request, body));
+        _ = new DeepLTranslator("abc:fx", new FakeLocal(), new HttpClient(deepL), keepWarm: true);
+        for (var i = 0; i < 200 && deepL.Requests.Count == 0; i++) await Task.Delay(10);
+        var ping = Assert.Single(deepL.Requests);
+        Assert.Equal(HttpMethod.Get, ping.Request.Method);
+        Assert.Equal("https://api-free.deepl.com/v2/usage", ping.Request.RequestUri!.AbsoluteUri);
+        Assert.Equal("DeepL-Auth-Key abc:fx", ping.Request.Headers.Authorization!.ToString());
+
+        var quiet = new FakeDeepL(Echo);
+        _ = new DeepLTranslator("abc:fx", new FakeLocal(), new HttpClient(quiet));
+        await Task.Delay(100);
+        Assert.Empty(quiet.Requests);
+    }
+
     [Fact]
     public async Task SpeakerLabelStaysAndPreviousSubtitleIsContext()
     {

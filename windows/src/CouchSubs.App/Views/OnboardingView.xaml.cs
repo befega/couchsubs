@@ -29,13 +29,13 @@ public partial class OnboardingView : UserControl
     private void OnChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(AppController.Step)) ShowStep();
-        else if (e.PropertyName == nameof(AppController.ConsoleKind))
+        else if (e.PropertyName is nameof(AppController.ConsoleKind) or nameof(AppController.SetupSteps))
         {
             Counter.Text = Localizer.Current.Format("Step %lld of %lld", controller.StepNumber, controller.StepCount);
             Progress.Value = (double)controller.StepNumber / controller.StepCount;
             ShowSteps();
         }
-        else if (e.PropertyName == nameof(AppController.UsesFreeGemini)) ShowContinue();
+        else if (e.PropertyName is nameof(AppController.UsesFreeGemini) or nameof(AppController.CanAdvance)) ShowContinue();
     }
 
     /// <summary>
@@ -44,7 +44,10 @@ public partial class OnboardingView : UserControl
     /// </summary>
     private void ShowContinue()
     {
-        var skip = controller.Step == OnboardingStep.BetterTranslation && !controller.UsesFreeGemini;
+        // OBS ya da pencere henüz açık değilse kurulum takılmaz: adım geçilir, seçim sonra Ayarlar › Görüntü kaynağı'nda.
+        var optionalSource = controller.Step is OnboardingStep.Obs or OnboardingStep.CaptureWindow && !controller.CanAdvance;
+        var skip = controller.Step == OnboardingStep.BetterTranslation && !controller.UsesFreeGemini || optionalSource;
+        ContinueButton.IsEnabled = skip || controller.CanAdvance;
         ContinueButton.Content = Localizer.Current[skip ? "Skip for now" : "Continue"];
         ContinueButton.Style = (Style)FindResource(skip ? "SecondaryButton" : "PrimaryButton");
         // Anahtar alanında Enter adımı geçmesin.
@@ -59,6 +62,9 @@ public partial class OnboardingView : UserControl
             OnboardingStep.SecondAccount => new SecondAccountStep(),
             OnboardingStep.PsnLogin => controller.IsXbox ? new XboxLoginStep() : new PsnLoginStep(),
             OnboardingStep.Console => controller.IsXbox ? new XboxConsoleStep() : new ConsoleStep(),
+            OnboardingStep.RemotePlay => new RemotePlayStep(),
+            OnboardingStep.CaptureWindow => new CaptureWindowStep(),
+            OnboardingStep.Obs => new ObsStep(),
             OnboardingStep.Tv => new TvStep(),
             OnboardingStep.Translation => new TranslationStep(),
             OnboardingStep.Test => new TestStep(),
@@ -79,6 +85,9 @@ public partial class OnboardingView : UserControl
         OnboardingStep.SecondAccount => "A second PSN account",
         OnboardingStep.PsnLogin => controller.IsXbox ? "Sign in to Xbox" : "Sign in with the second account",
         OnboardingStep.Console => controller.IsXbox ? "Choose your Xbox" : "Connect your PS5",
+        OnboardingStep.RemotePlay => "Remote Play on this PC",
+        OnboardingStep.CaptureWindow => "Choose the capture window",
+        OnboardingStep.Obs => "Connect OBS",
         OnboardingStep.Tv => "Connect your TV",
         OnboardingStep.Translation => "Download the translation model",
         OnboardingStep.Test => "Let's test it",
@@ -89,11 +98,12 @@ public partial class OnboardingView : UserControl
     private void ShowSteps()
     {
         StepList.Children.Clear();
-        var current = (int)controller.Step;
-        foreach (var step in Enum.GetValues<OnboardingStep>().Where(s => s != OnboardingStep.Done && !(controller.IsXbox && s == OnboardingStep.SecondAccount)))
+        // Yalnız seçilen konsol ve görüntü kaynağının adımları (ör. OBS'te PSN girişi yok).
+        var steps = controller.SetupSteps.ToList();
+        var current = steps.IndexOf(controller.Step) is var at and >= 0 ? at : steps.Count;
+        foreach (var (step, index) in steps.Select((step, index) => (step, index)))
         {
-            var index = (int)step;
-            var position = index + 1 - (controller.IsXbox && step > OnboardingStep.SecondAccount ? 1 : 0);
+            var position = index + 1;
             var (done, now) = (index < current, index == current);
             var mark = new TextBlock
             {
@@ -131,5 +141,9 @@ public partial class OnboardingView : UserControl
         ShowStep();
     }
 
-    private void OnContinue(object sender, RoutedEventArgs e) => controller.Advance();
+    private void OnContinue(object sender, RoutedEventArgs e)
+    {
+        if (controller.CanAdvance) controller.Advance();
+        else controller.SkipStep();
+    }
 }

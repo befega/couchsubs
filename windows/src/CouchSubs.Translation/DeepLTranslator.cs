@@ -28,7 +28,20 @@ public sealed class DeepLTranslator : ITextTranslator, IOnlineTranslator
     /// <summary>Hata sonrası bu süre DeepL denenmez; her satırda bağlantı zaman aşımını beklemeyelim.</summary>
     private static readonly TimeSpan RetryAfter = TimeSpan.FromMinutes(1);
 
-    private static readonly Lazy<HttpClient> SharedClient = new(() => new HttpClient { Timeout = TimeSpan.FromSeconds(4) });
+    /// <summary>
+    /// Bağlantı boşta 5 dakika açık kalır (varsayılan 1 dakikaydı): diyalogsuz bir sahneden sonraki ilk satırda bağlantı ve
+    /// TLS yeniden kurulmasın; bu, satıra birkaç yüz milisaniye ekliyordu. Ayrıca bkz. <see cref="KeepWarm"/>.
+    /// </summary>
+    private static readonly Lazy<HttpClient> SharedClient = new(() => new HttpClient(new SocketsHttpHandler
+    {
+        PooledConnectionIdleTimeout = TimeSpan.FromMinutes(5),
+        PooledConnectionLifetime = TimeSpan.FromMinutes(30),
+    }) { Timeout = TimeSpan.FromSeconds(4) });
+
+    /// <summary>Çeviri sürerken bağlantı bu aralıkla yoklanır (sunucu tarafı boştaki bağlantıyı da kapatabilir).</summary>
+    internal static readonly TimeSpan WarmInterval = TimeSpan.FromSeconds(40);
+    /// <summary>Bu kadar süre hiç satır gelmezse yoklama durur (çeviri durmuş ya da oyun kapalı).</summary>
+    internal static readonly TimeSpan WarmFor = TimeSpan.FromMinutes(10);
 
     private readonly string _key;
     private readonly ITextTranslator? _fallback;
@@ -42,17 +55,62 @@ public sealed class DeepLTranslator : ITextTranslator, IOnlineTranslator
     private DateTimeOffset _pausedUntil = DateTimeOffset.MinValue;
     /// <summary>Bekleme DeepL'in 429 yanıtından mı; öyleyse yerel yedek olmasa da istek gönderilmez.</summary>
     private bool _pauseRateLimited;
+    private readonly bool _keepWarm;
+    private long _lastUse = Environment.TickCount64;
+    private long _lastRequest;
+    private int _warming;
 
     /// <param name="cache">Kalıcı önbellek; verilmezse yalnız bellekte tutulur.</param>
     /// <param name="glossary">Verilmezse kullanıcının sözlük klasörü (ücretsiz çeviriyle aynı).</param>
+    /// <param name="keepWarm">Bağlantı açık tutulsun mu (bkz. <see cref="KeepWarm"/>); verilmezse yalnız ortak istemcide.</param>
     public DeepLTranslator(string key, ITextTranslator? fallback, HttpClient? http = null, TranslationCache? cache = null,
-        GlossaryStore? glossary = null)
+        GlossaryStore? glossary = null, bool? keepWarm = null)
     {
         _key = key.Trim();
         _fallback = fallback;
         _http = http ?? SharedClient.Value;
         _cache = cache ?? new TranslationCache();
         _glossary = glossary ?? new GlossaryStore(GlossaryStore.UserDirectory);
+        _keepWarm = keepWarm ?? http is null;
+        // Çeviri başlarken bağlantı hemen kurulur; ilk altyazı TLS el sıkışmasını beklemez.
+        KeepWarm();
+    }
+
+    /// <summary>
+    /// "HTTP isteğini uyanık tutmak": çeviri sürerken DeepL'e açık bağlantı hazır bekler. Son satırdan bu yana
+    /// <see cref="WarmFor"/> geçmediyse ve <see cref="WarmInterval"/> boyunca hiç istek gitmediyse kullanım sorgusu
+    /// (<c>/v2/usage</c>) gönderilir; bu sorgu karakter kotasından düşmez. Hata önemsizdir, yoklama sessizce sürer.
+    /// </summary>
+    private void KeepWarm()
+    {
+        Interlocked.Exchange(ref _lastUse, Environment.TickCount64);
+        if (!_keepWarm || Interlocked.Exchange(ref _warming, 1) == 1) return;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await PingAsync().ConfigureAwait(false);
+                while (Environment.TickCount64 - Interlocked.Read(ref _lastUse) < WarmFor.TotalMilliseconds)
+                {
+                    await Task.Delay(WarmInterval).ConfigureAwait(false);
+                    if (Environment.TickCount64 - Interlocked.Read(ref _lastRequest) >= WarmInterval.TotalMilliseconds)
+                        await PingAsync().ConfigureAwait(false);
+                }
+            }
+            finally { Volatile.Write(ref _warming, 0); }
+        });
+    }
+
+    private async Task PingAsync()
+    {
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(BaseUri(_key), "usage"));
+            request.Headers.Authorization = new AuthenticationHeaderValue("DeepL-Auth-Key", _key);
+            Interlocked.Exchange(ref _lastRequest, Environment.TickCount64);
+            using var response = await _http.SendAsync(request).ConfigureAwait(false);
+        }
+        catch (Exception error) when (error is HttpRequestException or TaskCanceledException) { }
     }
 
     /// <summary>Son DeepL hatası; çeviri düzgün gidiyorsa null.</summary>
@@ -82,6 +140,7 @@ public sealed class DeepLTranslator : ITextTranslator, IOnlineTranslator
     public async Task<string> TranslateAsync(string text, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(text);
+        KeepWarm();
         // Bağlam, bu satırdan önce gösterilenlerdir; satırın kendisi bağlama girmez.
         var context = Context();
         Shown(text);
@@ -181,6 +240,7 @@ public sealed class DeepLTranslator : ITextTranslator, IOnlineTranslator
             Content = JsonContent.Create(body, DeepLJson.Default.TranslateRequest),
         };
         request.Headers.Authorization = new AuthenticationHeaderValue("DeepL-Auth-Key", _key);
+        Interlocked.Exchange(ref _lastRequest, Environment.TickCount64);
         using var response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
         ThrowIfFailed(response);
         var reply = await response.Content.ReadFromJsonAsync(DeepLJson.Default.TranslateResponse, cancellationToken).ConfigureAwait(false);

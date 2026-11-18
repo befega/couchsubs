@@ -38,6 +38,8 @@ public static class StoreKeys
     public const string LoginPasscode = "loginPasscode";
     /// <summary>"Yayın penceresi"nin zemin rengi (<see cref="StreamBackground"/>).</summary>
     public const string StreamBackground = "streamBackground";
+    /// <summary>OBS WebSocket sunucusunun parolası (isteğe bağlı; Araçlar › WebSocket Sunucu Ayarları).</summary>
+    public const string ObsPassword = "obsPassword";
 }
 
 /// <summary>
@@ -186,15 +188,26 @@ public static class TranslationEngines
 /// <summary>
 /// Görüntünün nereden okunduğu. <c>Ps5</c>: CouchSubs PS5'e kendisi bağlanır (ikinci hesap). <c>RemotePlayWindow</c>:
 /// oyun bu bilgisayardaki PS Remote Play'de ya da chiaki-ng'de oynanır, CouchSubs yalnız o pencereyi okur; PS5'e ikinci
-/// oturum açılmadığı için ikinci hesap gerekmez (Mac'teki FrameSource ile aynı). Eski ayar dosyaları PS5 ile açılır.
+/// oturum açılmadığı için ikinci hesap gerekmez (Mac'teki FrameSource ile aynı). <c>CaptureWindow</c>: seçilen OBS
+/// projektörü ya da oyun penceresi. <c>ObsSource</c>: OBS'teki bir kaynak (ör. capture card) obs-websocket ile okunur;
+/// pencere gerekmez (yalnız Windows). Eski ayar dosyaları PS5 ile açılır.
 /// </summary>
-public enum FrameSource { Ps5, RemotePlayWindow, CaptureWindow }
+public enum FrameSource { Ps5, RemotePlayWindow, CaptureWindow, ObsSource }
 
 /// <summary>
 /// Kullanıcının açıkça seçtiği OBS projektörü veya oyun penceresi. PID/handle saklanmaz (yeniden açılışta değişir);
 /// hem süreç adı hem pencere başlığı eşleşmelidir. Pencere bulunmazsa başka kaynağa geçilmez.
 /// </summary>
 public sealed record WindowCaptureTarget(string ProcessName, string Title);
+
+/// <summary>
+/// obs-websocket ile okunan OBS kaynağı: OBS'in adresi (<c>localhost:4455</c>) ve kaynağın adı (ör. "Capture Card").
+/// Parola burada değil, şifreli depoda (<see cref="StoreKeys.ObsPassword"/>).
+/// </summary>
+public sealed record ObsSourceTarget(string Address, string SourceName)
+{
+    public bool IsComplete => SourceName.Trim().Length > 0 && ObsEndpoint.Parse(Address) is not null;
+}
 
 /// <summary>Pencereden okunurken hangi Remote Play uygulaması: hangisi açıksa, yalnız Sony'ninki ya da yalnız chiaki-ng.</summary>
 public enum RemotePlayApp { Automatic, Sony, Chiaki }
@@ -260,6 +273,16 @@ public sealed record UserSettings
     public bool OnlineTranslation { get; init; }
     /// <summary>Seçili çevrimiçi motor (hiçbir zaman Free değildir).</summary>
     public TranslationEngine OnlineEngine { get; init; } = TranslationEngine.DeepL;
+    /// <summary>
+    /// Seçici ("conductor"): satır <see cref="ConductorEngines"/> içindeki hazır motorların hepsine aynı anda gider, en iyi
+    /// çeviri seçilir (bkz. <c>ConductorTranslator</c>). Yalnız İngilizce→Türkçe için; ikiden az motor hazırsa tek motorla
+    /// çevrilir. Eski ayar dosyalarında yoktur; kapalı açılır.
+    /// </summary>
+    public bool Conductor { get; init; }
+    /// <summary>Seçicide yarışan motorlar (sırası önemsiz; öncelik sabittir).</summary>
+    public TranslationEngine[] ConductorEngines { get; init; } = DefaultConductorEngines;
+    /// <summary>DeepL, yerel model (ör. Gemma) ve ücretsiz OPUS-MT.</summary>
+    public static readonly TranslationEngine[] DefaultConductorEngines = [TranslationEngine.DeepL, TranslationEngine.Local, TranslationEngine.Free];
     /// <summary>Seçili yapay zekâ modelleri (listedeki kimlikler; bkz. <see cref="AiProviders.Models"/>).</summary>
     public string GeminiModel { get; init; } = AiProvider.Gemini.DefaultModel().Id;
     public string OpenAiModel { get; init; } = AiProvider.OpenAi.DefaultModel().Id;
@@ -299,6 +322,8 @@ public sealed record UserSettings
     public bool XboxAudioOnComputer { get; init; } = true;
     /// <summary>OBS veya başka bir açık pencere seçildiyse yalnız bu pencere yakalanır (varsayılan null).</summary>
     public WindowCaptureTarget? CaptureWindow { get; init; }
+    /// <summary>OBS kaynağından (obs-websocket) okunurken adres ve kaynak (varsayılan null: henüz seçilmedi).</summary>
+    public ObsSourceTarget? ObsSource { get; init; }
     /// <summary>Pencereden okunurken hangi Remote Play uygulaması (bkz. <see cref="Shell.RemotePlayApp"/>).</summary>
     public RemotePlayApp RemotePlayApp { get; init; } = RemotePlayApp.Automatic;
     /// <summary>
@@ -569,6 +594,12 @@ public interface IAppServices
     IStreamSession MakeCaptureWindowStream(WindowCaptureTarget target) => throw new NotSupportedException();
     /// <summary>Kullanıcının seçebileceği görünür pencereler. PSN veya ekran paylaşım izni gerekmez.</summary>
     IReadOnlyList<WindowCaptureTarget> CaptureWindows() => [];
+    /// <summary>OBS'teki kaynağı obs-websocket ile okur (görüntü çözme platforma özgüdür; Windows'ta WPF).</summary>
+    /// <param name="password">Her bağlantıda şifreli depodan yeniden okunur.</param>
+    IStreamSession MakeObsSourceStream(ObsSourceTarget target, Func<string?> password) => throw new NotSupportedException();
+    /// <summary>OBS'teki görüntülü kaynaklar (Ayarlar'daki liste). Hata olursa <see cref="ObsException"/>.</summary>
+    Task<IReadOnlyList<ObsInput>> ObsInputsAsync(ObsEndpoint endpoint, string? password, CancellationToken cancellationToken) =>
+        ObsSourceStream.ListInputsAsync(endpoint, password, cancellationToken);
     /// <summary>Seçilen Remote Play uygulaması (PS Remote Play ya da chiaki-ng) bu bilgisayarda kurulu mu.</summary>
     bool RemotePlayInstalled(RemotePlayApp app) => true;
     /// <param name="appConnected">TV uygulaması bilgisayara bağlı mı (Samsung'da bağlıyken TV'ye dokunulmaz).</param>
@@ -689,7 +720,12 @@ public sealed record SamsungPreflight(SamsungDeveloperInfo? Info, string? Comput
 public enum StatusTone { Idle, Warning, Good }
 
 /// <summary><c>BetterTranslation</c>: isteğe bağlı ücretsiz Gemini anahtarı; atlanabilir (Mac'teki betterTranslation).</summary>
-public enum OnboardingStep { Welcome, SecondAccount, PsnLogin, Console, Tv, Translation, Test, BetterTranslation, Done }
+/// <summary>
+/// Kurulum adımları. Hangilerinin gösterileceği konsola ve görüntü kaynağına bağlıdır (<c>AppController.SetupStepsFor</c>):
+/// PS5'e bağlanırken ikinci hesap, PSN girişi ve PS5 eşleştirmesi; Remote Play penceresinde uygulama seçimi; seçili
+/// pencerede pencere seçimi; OBS kaynağında OBS bağlantısı.
+/// </summary>
+public enum OnboardingStep { Welcome, SecondAccount, PsnLogin, Console, RemotePlay, CaptureWindow, Obs, Tv, Translation, Test, BetterTranslation, Done }
 
 public enum AppError
 {

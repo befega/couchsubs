@@ -144,7 +144,7 @@ public sealed class AppController : INotifyPropertyChanged, IDisposable
         var paired = tv is not null && store.Load<string>(StoreKeys.TvKey) is not null;
         // Remote Play penceresinden okurken PS5 eşleşmesi gerekmez.
         var consoleReady = consoleKind == GameConsoleKind.Xbox ? xboxToken is not null && xboxConsole is not null : accountId is not null && console is not null;
-        var ready = (!IsXbox && (settings.FrameSource is FrameSource.RemotePlayWindow or FrameSource.CaptureWindow))
+        var ready = (!IsXbox && (settings.FrameSource is FrameSource.RemotePlayWindow or FrameSource.CaptureWindow or FrameSource.ObsSource))
                     || SetupIsComplete(store, consoleReady, paired);
         // Yarım kalan kurulum (ör. TV uygulaması kurulurken kapatıldı) PS5 kayıtlıysa TV adımından sürer.
         step = ready ? OnboardingStep.Done : consoleReady ? OnboardingStep.Tv : OnboardingStep.Welcome;
@@ -202,12 +202,31 @@ public sealed class AppController : INotifyPropertyChanged, IDisposable
             if (value == OnboardingStep.Done) store.Save(StoreKeys.SetupComplete, true);
         }
     }
-    public int StepCount => (int)OnboardingStep.Done - (consoleKind == GameConsoleKind.Xbox ? 1 : 0);
-    public int StepNumber => Math.Min((int)step + 1 - (consoleKind == GameConsoleKind.Xbox && step > OnboardingStep.SecondAccount ? 1 : 0), StepCount);
+    /// <summary>
+    /// Sihirbazın adımları (sırasıyla; <see cref="OnboardingStep.Done"/> hariç). Karşılamada konsol ve görüntü kaynağı
+    /// seçilir; kalan adımlar ona göredir, gereksizleri (ör. OBS'te PSN girişi) hiç gösterilmez.
+    /// </summary>
+    public static IReadOnlyList<OnboardingStep> SetupStepsFor(GameConsoleKind kind, FrameSource source)
+    {
+        OnboardingStep[] picture = kind == GameConsoleKind.Xbox ? [OnboardingStep.PsnLogin, OnboardingStep.Console] : source switch
+        {
+            FrameSource.RemotePlayWindow => [OnboardingStep.RemotePlay],
+            FrameSource.CaptureWindow => [OnboardingStep.CaptureWindow],
+            FrameSource.ObsSource => [OnboardingStep.Obs],
+            _ => [OnboardingStep.SecondAccount, OnboardingStep.PsnLogin, OnboardingStep.Console],
+        };
+        return [OnboardingStep.Welcome, .. picture, OnboardingStep.Tv, OnboardingStep.Translation, OnboardingStep.Test, OnboardingStep.BetterTranslation];
+    }
+
+    public IReadOnlyList<OnboardingStep> SetupSteps => SetupStepsFor(consoleKind, settings.FrameSource);
+    public int StepCount => SetupSteps.Count;
+    public int StepNumber => SetupSteps.ToList().IndexOf(step) is var index and >= 0 ? index + 1 : StepCount;
     public GameConsoleKind ConsoleKind => consoleKind;
     public bool ConsoleKindLocked => consoleKindLocked;
     public bool IsXbox => consoleKind == GameConsoleKind.Xbox;
-    public string ConsoleTitle => IsXbox ? "Xbox" : settings.FrameSource == FrameSource.CaptureWindow ? text["Selected window"] : "PS5";
+    public string ConsoleTitle => IsXbox ? "Xbox"
+        : settings.FrameSource == FrameSource.CaptureWindow ? text["Selected window"]
+        : settings.FrameSource == FrameSource.ObsSource ? "OBS" : "PS5";
     public bool HasXboxAccount => xboxToken is not null;
     public XboxConsole? SelectedXboxConsole => xboxConsole;
     public void SelectConsoleKind(GameConsoleKind kind)
@@ -215,7 +234,7 @@ public sealed class AppController : INotifyPropertyChanged, IDisposable
         if (step != OnboardingStep.Welcome || consoleKindLocked || kind == consoleKind || kind == GameConsoleKind.Xbox && services.Xbox is null) return;
         consoleKind = kind;
         store.Save(StoreKeys.ConsoleKind, kind);
-        Changed(nameof(ConsoleKind), nameof(IsXbox), nameof(ConsoleTitle), nameof(StepCount), nameof(StepNumber), nameof(CanStart), nameof(CanAdvance), nameof(Ps5StatusText));
+        Changed(nameof(ConsoleKind), nameof(IsXbox), nameof(ConsoleTitle), nameof(SetupSteps), nameof(StepCount), nameof(StepNumber), nameof(CanStart), nameof(CanAdvance), nameof(Ps5StatusText));
     }
     public async Task<XboxLoginChallenge> BeginXboxLoginAsync()
     {
@@ -316,6 +335,8 @@ public sealed class AppController : INotifyPropertyChanged, IDisposable
             ? WindowStatusText(sessionState, isRunning, text, installed: !RemotePlayMissing)
             : settings.FrameSource == FrameSource.CaptureWindow
                 ? CaptureWindowStatusText(sessionState, isRunning, text, settings.CaptureWindow)
+            : settings.FrameSource == FrameSource.ObsSource
+                ? ObsSourceStatusText(sessionState, isRunning, text, settings.ObsSource)
                 : StatusText(sessionState, isRunning, text, console is null ? null : string.IsNullOrEmpty(console.Name) ? "PS5" : console.Name);
     private string XboxStatusText() => sessionState.Phase switch
     {
@@ -344,6 +365,7 @@ public sealed class AppController : INotifyPropertyChanged, IDisposable
                             : settings.FrameSource == FrameSource.RemotePlayWindow
                               || settings.FrameSource == FrameSource.CaptureWindow && settings.CaptureWindow is
                                  { ProcessName.Length: > 0, Title.Length: > 0 }
+                              || settings.FrameSource == FrameSource.ObsSource && settings.ObsSource is { IsComplete: true }
                               || settings.FrameSource == FrameSource.Ps5 && console is not null && accountId is not null)
                             && (ShowsOnComputer || HasTv);
     public string LastSource { get => lastSource; private set => Set(ref lastSource, value); }
@@ -404,13 +426,16 @@ public sealed class AppController : INotifyPropertyChanged, IDisposable
             if (old.ActiveAreaProfile != value.ActiveAreaProfile || old.AreaProfiles != value.AreaProfiles || old.Areas != value.Areas
                 || old.FrameSource != value.FrameSource)
                 Changed(nameof(AreaProfileGame), nameof(AreaProfileUnsaved), nameof(AreaProfileTarget));
-            if (old.FrameSource != value.FrameSource || old.CaptureWindow != value.CaptureWindow)
-                Changed(nameof(CanStart), nameof(Ps5StatusText), nameof(ConsoleTitle));
+            if (old.FrameSource != value.FrameSource || old.CaptureWindow != value.CaptureWindow || old.ObsSource != value.ObsSource)
+                Changed(nameof(CanStart), nameof(Ps5StatusText), nameof(ConsoleTitle), nameof(CanAdvance));
+            if (old.FrameSource != value.FrameSource) Changed(nameof(SetupSteps), nameof(StepCount), nameof(StepNumber));
             var windowAppChanged = value.FrameSource == FrameSource.RemotePlayWindow && old.RemotePlayApp != value.RemotePlayApp;
             var captureWindowChanged = value.FrameSource == FrameSource.CaptureWindow && old.CaptureWindow != value.CaptureWindow;
+            var obsSourceChanged = value.FrameSource == FrameSource.ObsSource && old.ObsSource != value.ObsSource;
             var xboxFrameRateChanged = IsXbox && old.XboxLegacyFrameRate != value.XboxLegacyFrameRate;
             var xboxAudioChanged = IsXbox && old.XboxAudioOnComputer != value.XboxAudioOnComputer;
-            if (isRunning && (old.FrameSource != value.FrameSource || windowAppChanged || captureWindowChanged || xboxFrameRateChanged || xboxAudioChanged))
+            if (isRunning && (old.FrameSource != value.FrameSource || windowAppChanged || captureWindowChanged || obsSourceChanged
+                              || xboxFrameRateChanged || xboxAudioChanged))
             {
                 // Görüntü kaynağı, Xbox kare aralığı ya da Xbox ses çıkışı değişti: akış yeni seçimle yeniden başlar.
                 // TV uygulaması kapatılmaz; kapanıp yeniden açılsa TV girişi gidip gelirdi.
@@ -424,7 +449,8 @@ public sealed class AppController : INotifyPropertyChanged, IDisposable
                                      || old.LocalAiBaseUrl != value.LocalAiBaseUrl || old.LocalAiModel != value.LocalAiModel
                                      || old.AiInstruction != value.AiInstruction
                                      || old.TranslationDevice != value.TranslationDevice
-                                     || old.CpuTranslationThreads != value.CpuTranslationThreads;
+                                     || old.CpuTranslationThreads != value.CpuTranslationThreads
+                                     || old.Conductor != value.Conductor || !old.ConductorEngines.SequenceEqual(value.ConductorEngines);
             if (translationChanged && !isRunning) RefreshTranslatorStatus();
             if (isRunning && (old.SourceLanguage != value.SourceLanguage || old.TargetLanguage != value.TargetLanguage
                               || translationChanged || old.FastSubtitleDetection != value.FastSubtitleDetection
@@ -440,7 +466,9 @@ public sealed class AppController : INotifyPropertyChanged, IDisposable
 
     public bool CanAdvance => step switch
     {
-        OnboardingStep.Welcome or OnboardingStep.SecondAccount or OnboardingStep.Test or OnboardingStep.BetterTranslation => true,
+        OnboardingStep.Welcome or OnboardingStep.SecondAccount or OnboardingStep.RemotePlay or OnboardingStep.Test or OnboardingStep.BetterTranslation => true,
+        OnboardingStep.CaptureWindow => settings.CaptureWindow is not null,
+        OnboardingStep.Obs => settings.ObsSource is { IsComplete: true },
         OnboardingStep.PsnLogin => IsXbox ? xboxToken is not null : accountId is not null,
         OnboardingStep.Console => IsXbox ? xboxConsole is not null : console is not null,
         OnboardingStep.Tv => HasTv || settings.Output == SubtitleOutput.Computer,
@@ -459,13 +487,32 @@ public sealed class AppController : INotifyPropertyChanged, IDisposable
             store.Save(StoreKeys.ConsoleKindLocked, true);
             Changed(nameof(ConsoleKindLocked));
         }
-        Step = step == OnboardingStep.Welcome && IsXbox ? OnboardingStep.PsnLogin : step + 1;
+        SkipStep();
+    }
+
+    /// <summary>İsteğe bağlı adımı geçer (ör. OBS henüz açık değil; kaynak sonra Ayarlar'da seçilir).</summary>
+    public void SkipStep()
+    {
+        var steps = SetupSteps.ToList();
+        var index = steps.IndexOf(step);
+        if (step == OnboardingStep.Done || index < 0) return;
+        Step = index + 1 < steps.Count ? steps[index + 1] : OnboardingStep.Done;
     }
 
     public void Back()
     {
-        if (step > OnboardingStep.Welcome) Step = step == OnboardingStep.PsnLogin && IsXbox ? OnboardingStep.Welcome : step - 1;
+        var steps = SetupSteps.ToList();
+        var index = step == OnboardingStep.Done ? steps.Count : steps.IndexOf(step);
+        if (index < 0) Step = OnboardingStep.Welcome;
+        else if (index > 0) Step = steps[index - 1];
     }
+
+    /// <summary>
+    /// Karşılamadaki seçim: görüntü PS5'e bağlanarak mı, bu bilgisayardaki Remote Play penceresinden mi, seçilen
+    /// pencereden mi (OBS projektörü, capture card uygulaması), OBS'teki kaynaktan mı okunur. Sihirbazın kalan adımları ve
+    /// Ayarlar buna göre değişir.
+    /// </summary>
+    public void ChooseFrameSource(FrameSource source) => Settings = settings with { FrameSource = source };
 
     /// <summary>Ücretsiz Gemini anahtarı kayıtlı ve çeviri Gemini ile yapılıyor ("Daha iyi çeviri" adımı tamam).</summary>
     public bool UsesFreeGemini => settings.Engine == TranslationEngine.Gemini && HasKey(TranslationEngine.Gemini);
@@ -648,25 +695,27 @@ public sealed class AppController : INotifyPropertyChanged, IDisposable
         Advance();
     }
 
-    /// <summary>
-    /// Sihirbazdaki "İkinci hesap yok mu?": görüntü bu bilgisayardaki Remote Play penceresinden okunur. PSN girişi, PS5
-    /// eşleştirmesi ve TV adımı atlanır, kurulum biter; TV eşleşmemişse altyazı bilgisayar ekranında gösterilir (TV ve
-    /// daha iyi çeviri sonra Ayarlar'dan).
-    /// </summary>
-    public void UseRemotePlayWindow()
-    {
-        Settings = settings with { FrameSource = FrameSource.RemotePlayWindow, Output = HasTv ? settings.Output : SubtitleOutput.Computer };
-        Step = OnboardingStep.Done;
-    }
-
-    /// <summary>OBS veya oyun penceresi kullanıcı tarafından sonradan seçilir; PSN eşleştirmesine gerek yoktur.</summary>
-    public void UseCaptureWindow()
-    {
-        Settings = settings with { FrameSource = FrameSource.CaptureWindow, Output = HasTv ? settings.Output : SubtitleOutput.Computer };
-        Step = OnboardingStep.Done;
-    }
-
     public IReadOnlyList<WindowCaptureTarget> AvailableCaptureWindows() => services.CaptureWindows();
+
+    /// <summary>OBS WebSocket parolası şifreli depoda kayıtlı mı (parolanın kendisi arayüze dönmez).</summary>
+    public bool HasObsPassword => store.Load<string>(StoreKeys.ObsPassword) is { Length: > 0 };
+
+    /// <summary>Boş parola kaydı siler. OBS kaynağı okunurken bağlantı yeni parolayla hemen yenilenir.</summary>
+    public void SetObsPassword(string? password)
+    {
+        if (string.IsNullOrEmpty(password)) store.Remove(StoreKeys.ObsPassword);
+        else store.Save(StoreKeys.ObsPassword, password);
+        Changed(nameof(HasObsPassword));
+        if (isRunning && !IsXbox && settings.FrameSource == FrameSource.ObsSource) session?.ReconnectNow();
+    }
+
+    public void RemoveObsPassword() => SetObsPassword(null);
+
+    /// <summary>Ayarlar › Görüntü kaynağı: OBS'e bağlanıp görüntülü kaynakları listeler (kayıtlı parolayla).</summary>
+    public Task<IReadOnlyList<ObsInput>> ObsInputsAsync(string address, CancellationToken cancellationToken = default) =>
+        ObsEndpoint.Parse(address) is { } endpoint
+            ? services.ObsInputsAsync(endpoint, store.Load<string>(StoreKeys.ObsPassword), cancellationToken)
+            : Task.FromException<IReadOnlyList<ObsInput>>(new ObsException(ObsFailure.InvalidAddress));
 
     /// <summary>Görüntü PS5'ten (ikinci hesap) alınacak ama hesap ya da PS5 eşleşmesi yok: Ayarlar'da "Hesabı bağla" görünür.</summary>
     public bool NeedsPs5Link => settings.FrameSource == FrameSource.Ps5 && (accountId is null || console is null);
@@ -1311,10 +1360,11 @@ public sealed class AppController : INotifyPropertyChanged, IDisposable
     {
         // Düğmeye iki kez basılması ya da beklerken tekrar çağrılması ikinci bir oturum açmaz.
         if (isRunning || isStarting || !CanStart) return;
-        // PS5 için hesap gerekir; Remote Play, açıkça seçilen OBS/oyun penceresi ve Xbox için gerekmez.
+        // PS5 için hesap gerekir; Remote Play, açıkça seçilen OBS/oyun penceresi, OBS kaynağı ve Xbox için gerekmez.
         var readsWindow = !IsXbox && settings.FrameSource == FrameSource.RemotePlayWindow;
         var readsCapture = !IsXbox && settings.FrameSource == FrameSource.CaptureWindow;
-        if (!IsXbox && !readsWindow && !readsCapture && (console is null || accountId is null)) return;
+        var readsObs = !IsXbox && settings.FrameSource == FrameSource.ObsSource;
+        if (!IsXbox && !readsWindow && !readsCapture && !readsObs && (console is null || accountId is null)) return;
         IsStarting = true;
         try
         {
@@ -1328,8 +1378,8 @@ public sealed class AppController : INotifyPropertyChanged, IDisposable
             MakePipeline();
             if (settings.Dubbing.Enabled && DubbingInstalled) MakeDubber()?.Prepare();
             SubtitleLog.Write($"oturum başladı: {settings.SourceLanguage}→{settings.TargetLanguage}, "
-                + $"motor: {(OnlineTranslationActive ? settings.OnlineEngine.ToString() : "ücretsiz")}, paketler: {(settings.GamePacks ? "açık" : "kapalı")}, "
-                + $"görüntü: {(IsXbox ? "Xbox" : readsWindow ? "Remote Play penceresi" : readsCapture ? "seçilen pencere" : "PS5")}");
+                + $"motor: {(ConductorActive ? "seçici (" + string.Join(" + ", ConductorReadyEngines) + ")" : OnlineTranslationActive ? settings.OnlineEngine.ToString() : "ücretsiz")}, paketler: {(settings.GamePacks ? "açık" : "kapalı")}, "
+                + $"görüntü: {(IsXbox ? "Xbox" : readsWindow ? "Remote Play penceresi" : readsCapture ? "seçilen pencere" : readsObs ? "OBS kaynağı" : "PS5")}");
 
             IStreamSession stream;
             if (IsXbox)
@@ -1349,6 +1399,12 @@ public sealed class AppController : INotifyPropertyChanged, IDisposable
                 var target = settings.CaptureWindow ?? throw new InvalidOperationException("A capture window must be selected.");
                 RemotePlayLog.Note($"Çeviri başladı; seçilen pencere: {target.ProcessName} / {target.Title}");
                 stream = services.MakeCaptureWindowStream(target);
+            }
+            else if (readsObs)
+            {
+                var target = settings.ObsSource ?? throw new InvalidOperationException("An OBS source must be selected.");
+                RemotePlayLog.Note($"Çeviri başladı; OBS kaynağı: {target.SourceName} ({target.Address})");
+                stream = services.MakeObsSourceStream(target, () => store.Load<string>(StoreKeys.ObsPassword));
             }
             else
             {
@@ -1564,6 +1620,15 @@ public sealed class AppController : INotifyPropertyChanged, IDisposable
         return state.Reason?.Detail is { Length: > 0 } detail
             ? detail
             : text.Format("Waiting for the selected window: %@", target.Title);
+    }
+
+    /// <summary>Görüntü OBS'teki kaynaktan (obs-websocket) okunurken durumun metni.</summary>
+    public static string ObsSourceStatusText(SessionState state, bool running, Localizer text, ObsSourceTarget? target)
+    {
+        if (target is not { IsComplete: true }) return text["Choose an OBS source in Settings › Picture source."];
+        if (state.Phase == SessionPhase.Streaming) return text.Format("Reading %@ from OBS", target.SourceName);
+        if (!running) return text.Format("Ready to read %@ from OBS when translation starts.", target.SourceName);
+        return state.Reason?.Detail is { Length: > 0 } detail ? detail : text["Connecting to OBS…"];
     }
 
     public static string WindowStatusText(SessionState state, bool running, Localizer text, bool installed = true)
@@ -2067,6 +2132,7 @@ public sealed class AppController : INotifyPropertyChanged, IDisposable
     private ITextTranslator MakeTranslator()
     {
         var local = MakeLocalTranslator();
+        if (ConductorActive && MakeConductor(local) is { } conductor) return conductor;
         // Açılamayan ücretsiz motor yedek olamaz; çevrimiçi motor çeviremeyince satır yeniden denenir.
         var fallback = local is UnavailableTranslator || services.Translation.EngineFailed ? null : local;
         var engine = settings.OnlineEngine;
@@ -2093,6 +2159,60 @@ public sealed class AppController : INotifyPropertyChanged, IDisposable
         if (online is IOnlineTranslator reporting) reporting.FailureChanged += state => post(() => OnlineIssue = state);
         return online;
     }
+
+    /// <summary>Seçicide eşitlik bozan sabit öncelik: önce DeepL, sonra yapay zekâ hizmetleri, yerel model, ücretsiz.</summary>
+    private static readonly TranslationEngine[] ConductorOrder =
+        [TranslationEngine.DeepL, TranslationEngine.Claude, TranslationEngine.OpenAi, TranslationEngine.Gemini, TranslationEngine.Local, TranslationEngine.Free];
+
+    /// <summary>Seçici açık ve bu dil çiftinde kullanılabilir (çevrimiçi motorlar yalnız İngilizce→Türkçe).</summary>
+    public bool ConductorActive =>
+        settings.Conductor && settings.SourceLanguage == "en" && settings.TargetLanguage == "tr" && ConductorReadyEngines.Count >= 2;
+
+    /// <summary>Seçicide yarışacak, hazır motorlar (öncelik sırasıyla): anahtarı kayıtlı, yerel modeli ayarlı, ücretsiz modeli kurulu.</summary>
+    public IReadOnlyList<TranslationEngine> ConductorReadyEngines =>
+        [.. ConductorOrder.Where(engine => settings.ConductorEngines.Contains(engine) && ConductorCanUse(engine))];
+
+    /// <summary>Motor seçicide kullanılabilir mi (Ayarlar'da seçilemeyenler soluk görünür).</summary>
+    public bool ConductorCanUse(TranslationEngine engine) => engine == TranslationEngine.Free
+        ? services.Translation.IsInstalled(settings.SourceLanguage, settings.TargetLanguage) && !services.Translation.EngineFailed
+        : IsReady(engine);
+
+    /// <summary>
+    /// Seçici: hazır motorların her biri yedeksiz kurulur (çeviremeyen motor yarıştan düşer; ücretsiz motor zaten yarışır).
+    /// İkiden az motor kurulabildiyse null; o zaman tek motorla çevrilir.
+    /// </summary>
+    private ITextTranslator? MakeConductor(ITextTranslator local)
+    {
+        Func<string?> game = () => gameSense.Current?.Name;
+        var engines = new List<ConductorEngine>();
+        foreach (var engine in ConductorReadyEngines)
+        {
+            ITextTranslator? translator = engine switch
+            {
+                TranslationEngine.Free => local is UnavailableTranslator ? null : local,
+                TranslationEngine.Local => settings.LocalAiServer is { } server
+                    ? services.MakeLocalAiTranslator(server, engine.StoreKey() is { } localKey ? store.Load<string>(localKey) ?? "" : "", null, game)
+                    : null,
+                _ => engine.StoreKey() is { } storeKey && store.Load<string>(storeKey) is { Length: > 0 } key
+                    ? engine.Provider() is { } provider
+                        ? services.MakeAiTranslator(provider, key, provider.Model(settings.ModelFor(provider)).Id, null, game)
+                        : services.MakeOnlineTranslator(key, null)
+                    : null,
+            };
+            if (translator is null) continue;
+            if (translator is IOnlineTranslator reporting) reporting.FailureChanged += state => post(() => OnlineIssue = state);
+            engines.Add(new ConductorEngine(ConductorName(engine), translator));
+        }
+        return engines.Count >= 2 ? new ConductorTranslator(engines, log: SubtitleLog.Write) : null;
+    }
+
+    /// <summary>Günlükte ve Ayarlar'da motorun adı; yerel modelde model adı (ör. gemma3:12b).</summary>
+    public string ConductorName(TranslationEngine engine) => engine switch
+    {
+        TranslationEngine.Free => "OPUS-MT",
+        TranslationEngine.Local => settings.LocalAiServer?.Model ?? engine.DisplayName(),
+        _ => engine.DisplayName(),
+    };
 
     private ITextTranslator MakeLocalTranslator()
     {
@@ -2213,7 +2333,7 @@ public sealed class AppController : INotifyPropertyChanged, IDisposable
     private void RefreshTranslatorStatus()
     {
         var translation = services.Translation;
-        TranslatorStatus = OnlineTranslationActive ? TranslatorStatus.Ready
+        TranslatorStatus = OnlineTranslationActive || ConductorActive ? TranslatorStatus.Ready
             : !translation.IsSupported(settings.SourceLanguage, settings.TargetLanguage) ? TranslatorStatus.Unsupported
             : !translation.IsInstalled(settings.SourceLanguage, settings.TargetLanguage) ? TranslatorStatus.NeedsDownload
             : translation.EngineFailed ? TranslatorStatus.EngineFailed
@@ -2495,7 +2615,9 @@ public sealed class AppController : INotifyPropertyChanged, IDisposable
     private void UpdateTroubleClocks()
     {
         var now = Clock();
-        var ps5Trouble = !IsXbox && isRunning && sessionState.Phase != SessionPhase.Streaming && sessionState.Reason?.Kind is not
+        // OBS kaynağı genelde aynı bilgisayardadır; bağlanamaması güvenlik duvarı sorunu sayılmaz (OBS'in kendi iletisi yeter).
+        var ps5Trouble = !IsXbox && isRunning && settings.FrameSource != FrameSource.ObsSource
+                         && sessionState.Phase != SessionPhase.Streaming && sessionState.Reason?.Kind is not
             (DisconnectKind.ConsoleAsleep or DisconnectKind.InUse or DisconnectKind.Refused or DisconnectKind.LoginPasscode
              or DisconnectKind.LoginPasscodeIncorrect or DisconnectKind.RegistrationInvalid or DisconnectKind.Rejected);
         ps5TroubleSince = ps5Trouble ? ps5TroubleSince ?? now : null;

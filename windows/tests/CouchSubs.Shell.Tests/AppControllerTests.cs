@@ -223,6 +223,15 @@ internal sealed class FakeServices : IAppServices
         Streams.Add(stream);
         return stream;
     }
+    /// <summary>Her OBS kaynağı oturumuna verilen kaynak ve parola okuyucusu.</summary>
+    public List<(ObsSourceTarget Target, Func<string?> Password)> ObsStreams { get; } = [];
+    public IStreamSession MakeObsSourceStream(ObsSourceTarget target, Func<string?> password)
+    {
+        ObsStreams.Add((target, password));
+        var stream = new FakeStream();
+        Streams.Add(stream);
+        return stream;
+    }
     public List<WindowCaptureTarget> CaptureWindowStreams { get; } = [];
     public IStreamSession MakeCaptureWindowStream(WindowCaptureTarget target)
     {
@@ -1026,22 +1035,50 @@ public class AppControllerRunTests
         controller.Dispose();
     }
 
-    /// "İkinci hesap yok mu?": PSN girişi ve PS5 olmadan kurulum biter; görüntü Remote Play penceresinden, altyazı
-    /// bilgisayar ekranında. Yeniden açılınca sihirbaz çıkmaz.
+    /// Karşılamada seçilen görüntü kaynağı sihirbazın adımlarını belirler; gereksiz adımlar (PSN, PS5) hiç gösterilmez.
     [Fact]
-    public void NoSecondAccountReadsRemotePlayWindowAndCompletesSetup()
+    public void SetupStepsFollowTheChosenSource()
+    {
+        OnboardingStep[] tail = [OnboardingStep.Tv, OnboardingStep.Translation, OnboardingStep.Test, OnboardingStep.BetterTranslation];
+        Assert.Equal([OnboardingStep.Welcome, OnboardingStep.SecondAccount, OnboardingStep.PsnLogin, OnboardingStep.Console, .. tail],
+                     AppController.SetupStepsFor(GameConsoleKind.PlayStation, FrameSource.Ps5));
+        Assert.Equal([OnboardingStep.Welcome, OnboardingStep.RemotePlay, .. tail],
+                     AppController.SetupStepsFor(GameConsoleKind.PlayStation, FrameSource.RemotePlayWindow));
+        Assert.Equal([OnboardingStep.Welcome, OnboardingStep.CaptureWindow, .. tail],
+                     AppController.SetupStepsFor(GameConsoleKind.PlayStation, FrameSource.CaptureWindow));
+        Assert.Equal([OnboardingStep.Welcome, OnboardingStep.Obs, .. tail],
+                     AppController.SetupStepsFor(GameConsoleKind.PlayStation, FrameSource.ObsSource));
+        // Xbox görüntü kaynağı seçmez; kendi girişi ve konsol seçimi vardır.
+        Assert.Equal([OnboardingStep.Welcome, OnboardingStep.PsnLogin, OnboardingStep.Console, .. tail],
+                     AppController.SetupStepsFor(GameConsoleKind.Xbox, FrameSource.ObsSource));
+    }
+
+    /// Remote Play penceresi: PSN girişi ve PS5 olmadan, uygulama adımından TV adımına geçilir. Yeniden açılınca sihirbaz çıkmaz.
+    [Fact]
+    public void RemotePlayWindowSetupSkipsPsnAndPs5()
     {
         var store = new MemoryStore();
         var settings = new MemorySettings();
         var controller = AppControllerTests.Make(store: store, settings: settings);
+        Assert.Equal(OnboardingStep.Welcome, controller.Step);
+        controller.ChooseFrameSource(FrameSource.RemotePlayWindow);
+        Assert.Equal(6, controller.StepCount);
         controller.Advance();
-        Assert.Equal(OnboardingStep.SecondAccount, controller.Step);
-        controller.UseRemotePlayWindow();
-        Assert.Equal(OnboardingStep.Done, controller.Step);
-        Assert.Equal(FrameSource.RemotePlayWindow, controller.Settings.FrameSource);
-        Assert.Equal(SubtitleOutput.Computer, controller.Settings.Output);
+        Assert.Equal(OnboardingStep.RemotePlay, controller.Step);
+        Assert.Equal(2, controller.StepNumber);
+        controller.Advance();
+        Assert.Equal(OnboardingStep.Tv, controller.Step);
+        controller.Back();
+        Assert.Equal(OnboardingStep.RemotePlay, controller.Step);
+        controller.Back();
+        Assert.Equal(OnboardingStep.Welcome, controller.Step);
+        controller.Advance();
+        controller.Advance();
+        controller.UseComputerScreen();
+        Assert.Equal(OnboardingStep.Translation, controller.Step);
         Assert.False(controller.HasAccount);
         Assert.True(controller.CanStart);
+        controller.Step = OnboardingStep.Done;
         Assert.Equal(OnboardingStep.Done, AppControllerTests.Make(store: store, settings: settings).Step);
     }
 
@@ -1076,26 +1113,41 @@ public class AppControllerRunTests
         Assert.Equal("Reads the Remote Play window on this PC when you start translating.", controller.Ps5StatusText);
     }
 
+    /// Seçili pencere: pencere adımı seçim yapılmadan geçilemez ama "Şimdilik geç" ile atlanabilir; PSN ve PS5 sorulmaz.
     [Fact]
     public void SelectedWindowSetupSkipsPsnPairingButRequiresExplicitTarget()
     {
         var store = new MemoryStore();
         var settings = new MemorySettings();
         var controller = AppControllerTests.Make(store: store, settings: settings);
+        controller.ChooseFrameSource(FrameSource.CaptureWindow);
         controller.Advance();
-        Assert.Equal(OnboardingStep.SecondAccount, controller.Step);
-
-        controller.UseCaptureWindow();
-        Assert.Equal(OnboardingStep.Done, controller.Step);
-        Assert.Equal(FrameSource.CaptureWindow, controller.Settings.FrameSource);
-        Assert.Equal(SubtitleOutput.Computer, controller.Settings.Output);
-        Assert.False(controller.HasAccount);
-        Assert.False(controller.CanStart); // Never fall back to scanning the entire desktop.
+        Assert.Equal(OnboardingStep.CaptureWindow, controller.Step);
+        Assert.False(controller.CanAdvance); // Never fall back to scanning the entire desktop.
+        controller.Advance();
+        Assert.Equal(OnboardingStep.CaptureWindow, controller.Step);
 
         var target = new WindowCaptureTarget("obs64", "Fullscreen Projector (Scene)");
         controller.Settings = controller.Settings with { CaptureWindow = target };
+        Assert.True(controller.CanAdvance);
+        controller.Advance();
+        Assert.Equal(OnboardingStep.Tv, controller.Step);
+        controller.UseComputerScreen();
+        Assert.False(controller.HasAccount);
         Assert.True(controller.CanStart);
+        controller.Step = OnboardingStep.Done;
         Assert.Equal(OnboardingStep.Done, AppControllerTests.Make(store: store, settings: settings).Step);
+        controller.Dispose();
+    }
+
+    [Fact]
+    public void SelectedWindowStepCanBeSkippedUntilTheWindowIsOpen()
+    {
+        var controller = AppControllerTests.Make();
+        controller.ChooseFrameSource(FrameSource.CaptureWindow);
+        controller.Advance();
+        controller.SkipStep();
+        Assert.Equal(OnboardingStep.Tv, controller.Step);
         controller.Dispose();
     }
 
@@ -1327,6 +1379,41 @@ public class AppControllerRunTests
         // Güvenli depoda yalnız kurulumun bitip bitmediği durur.
         Assert.Equal([StoreKeys.SetupComplete], store.Values.Keys);
         Assert.Equal(58, AppControllerTests.Make(store: store, settings: settings).Settings.Style.FontSize);
+    }
+
+    /// <summary>
+    /// Seçici: DeepL, yerel model ve ücretsiz motor yedeksiz kurulur ve birlikte yarışır; kurulu olmayan motor yarışa
+    /// girmez, ikiden az motor kalırsa tek motorla çevrilir.
+    /// </summary>
+    [Fact]
+    public async Task ConductorRacesTheReadyEnginesWithoutFallbacks()
+    {
+        var services = new FakeServices();
+        var store = new MemoryStore();
+        var settings = new MemorySettings();
+        settings.Save(new UserSettings
+        {
+            FrameSource = FrameSource.ObsSource, ObsSource = new ObsSourceTarget("localhost:4455", "Capture"),
+            Output = SubtitleOutput.Computer, Conductor = true,
+        });
+        store.Save(TranslationEngine.DeepL.StoreKey()!, "key:fx");
+        var controller = AppControllerTests.Make(services, store, settings: settings);
+        Assert.True(controller.ConductorActive);
+        Assert.Equal([TranslationEngine.DeepL, TranslationEngine.Local, TranslationEngine.Free], controller.ConductorReadyEngines);
+        Assert.False(controller.ConductorCanUse(TranslationEngine.Gemini)); // anahtarı yok
+
+        await controller.StartAsync();
+        Assert.Equal(("key:fx", (ITextTranslator?)null), Assert.Single(services.OnlineTranslators));
+        Assert.Single(services.LocalTranslators);
+        controller.Stop();
+
+        // Yalnız DeepL seçiliyse seçici çalışmaz; çeviri tek motorla (seçili motor) yapılır.
+        controller.Settings = controller.Settings with { ConductorEngines = [TranslationEngine.DeepL] };
+        Assert.False(controller.ConductorActive);
+        services.Translation.Installed = false;
+        controller.Settings = controller.Settings with { ConductorEngines = UserSettings.DefaultConductorEngines };
+        Assert.Equal([TranslationEngine.DeepL, TranslationEngine.Local], controller.ConductorReadyEngines);
+        controller.Dispose();
     }
 
     [Fact]

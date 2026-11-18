@@ -13,6 +13,35 @@
                     <RadioButton x:Name="Xbox" Content="{t:T 'Xbox Series / Xbox One (Beta)'}" GroupName="consoleKind" Checked="OnSelected" />
                 </StackPanel>
             </c:Card>
+            <!-- PS5'te görüntünün nereden okunacağı: sihirbazın kalan adımları ve Ayarlar buna göre değişir. -->
+            <c:Card x:Name="SourceCard" Title="{t:T 'Where does CouchSubs get the game picture from?'}" Margin="0,16,0,0">
+                <StackPanel>
+                    <RadioButton x:Name="SourcePs5" GroupName="frameSource" Tag="Ps5" Checked="OnSource" Margin="0,0,0,12">
+                        <StackPanel>
+                            <TextBlock Text="{t:T 'Connect to the PS5'}" FontWeight="SemiBold" />
+                            <TextBlock Style="{StaticResource HintText}" TextWrapping="Wrap" Text="{t:T 'CouchSubs connects to the PS5 by itself with a second PSN account. You play on the TV as usual.'}" />
+                        </StackPanel>
+                    </RadioButton>
+                    <RadioButton x:Name="SourceRemotePlay" GroupName="frameSource" Tag="RemotePlayWindow" Checked="OnSource" Margin="0,0,0,12">
+                        <StackPanel>
+                            <TextBlock Text="{t:T 'Remote Play window on this PC'}" FontWeight="SemiBold" />
+                            <TextBlock Style="{StaticResource HintText}" TextWrapping="Wrap" Text="{t:T 'You play in PS Remote Play or chiaki-ng on this PC; CouchSubs reads only that window.'}" />
+                        </StackPanel>
+                    </RadioButton>
+                    <RadioButton x:Name="SourceCaptureWindow" GroupName="frameSource" Tag="CaptureWindow" Checked="OnSource" Margin="0,0,0,12">
+                        <StackPanel>
+                            <TextBlock Text="{t:T 'Capture card window (OBS projector or capture app)'}" FontWeight="SemiBold" />
+                            <TextBlock Style="{StaticResource HintText}" TextWrapping="Wrap" Text="{t:T 'CouchSubs reads only the window you choose, for example an OBS projector or your capture card app. Keep the window open and uncovered.'}" />
+                        </StackPanel>
+                    </RadioButton>
+                    <RadioButton x:Name="SourceObs" GroupName="frameSource" Tag="ObsSource" Checked="OnSource">
+                        <StackPanel>
+                            <TextBlock Text="{t:T 'Capture card in OBS (obs-websocket)'}" FontWeight="SemiBold" />
+                            <TextBlock Style="{StaticResource HintText}" TextWrapping="Wrap" Text="{t:T 'The PS5 comes in through a capture card that OBS already shows. CouchSubs asks OBS for pictures of that source; the stream and the recording are not touched.'}" />
+                        </StackPanel>
+                    </RadioButton>
+                </StackPanel>
+            </c:Card>
             <TextBlock x:Name="Requirements" Margin="0,16,0,0" TextWrapping="Wrap" Style="{StaticResource HintText}" />
         </StackPanel>
     </c:StepLayout>

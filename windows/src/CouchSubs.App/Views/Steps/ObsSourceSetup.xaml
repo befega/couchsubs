@@ -1,0 +1,38 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-only -->
+<!-- OBS kaynağı (obs-websocket): capture card'ı OBS tutar, CouchSubs yalnız seçilen kaynağın anlık görüntüsünü ister. Ayarlar ve sihirbaz ortak. -->
+<UserControl x:Class="CouchSubs.App.Views.Steps.ObsSourceSetup"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:t="clr-namespace:CouchSubs.App.Theme">
+    <StackPanel>
+        <TextBlock Style="{StaticResource HintText}" TextWrapping="Wrap" Margin="0,0,0,10"
+                   Text="{t:T 'In OBS open Tools › WebSocket Server Settings, turn on Enable WebSocket server and copy the password from Show Connect Info. CouchSubs only asks OBS for pictures of the source you choose: the capture card, the stream and the recording are not touched.'}" />
+        <Grid Margin="0,0,0,8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="130" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <TextBlock Text="{t:T 'OBS address'}" VerticalAlignment="Center" />
+            <TextBox x:Name="AddressBox" Grid.Column="1" FontFamily="Consolas" VerticalContentAlignment="Center" />
+        </Grid>
+        <Grid Margin="0,0,0,8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="130" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <TextBlock Text="{t:T 'Password'}" VerticalAlignment="Center" />
+            <PasswordBox x:Name="PasswordBox" Grid.Column="1" VerticalContentAlignment="Center" />
+            <TextBlock x:Name="PasswordSaved" Grid.Column="1" Style="{StaticResource DoneText}" VerticalAlignment="Center"
+                       Text="{t:T 'Password saved.'}" Visibility="Collapsed" />
+            <Button x:Name="PasswordRemove" Grid.Column="2" Content="{t:T 'Remove'}" Margin="10,0,0,0"
+                    Click="OnPasswordRemove" Visibility="Collapsed" />
+        </Grid>
+        <DockPanel Margin="0,0,0,8">
+            <Button x:Name="ConnectButton" Content="{t:T 'Connect and list sources'}" DockPanel.Dock="Right" Margin="10,0,0,0"
+                    Click="OnConnect" />
+            <ComboBox x:Name="SourceChoice" MinWidth="250" SelectionChanged="OnSourceChanged" />
+        </DockPanel>
+        <TextBlock x:Name="Status" Style="{StaticResource HintText}" TextWrapping="Wrap" Visibility="Collapsed" />
+    </StackPanel>
+</UserControl>

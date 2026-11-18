@@ -1,0 +1,15 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-only -->
+<!-- Görüntü OBS'teki capture card kaynağından okunurken: OBS'e bağlanılır ve kaynak seçilir. OBS henüz açık değilse adım geçilebilir; kaynak sonra Ayarlar'da seçilir. -->
+<UserControl x:Class="CouchSubs.App.Views.Steps.ObsStep"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:c="clr-namespace:CouchSubs.App.Controls"
+             xmlns:s="clr-namespace:CouchSubs.App.Views.Steps"
+             xmlns:t="clr-namespace:CouchSubs.App.Theme">
+    <c:StepLayout Title="{t:T 'Connect OBS'}"
+                  Message="{t:T 'CouchSubs reads the game picture from the capture card source in OBS. OBS keeps the capture card; your stream and recording go on as before.'}">
+        <c:Card>
+            <s:ObsSourceSetup />
+        </c:Card>
+    </c:StepLayout>
+</UserControl>
