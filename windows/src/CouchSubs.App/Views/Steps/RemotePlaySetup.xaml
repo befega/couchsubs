@@ -6,7 +6,7 @@
              xmlns:t="clr-namespace:CouchSubs.App.Theme">
     <StackPanel>
         <StackPanel Orientation="Horizontal">
-            <TextBlock Text="{t:T 'Remote Play app'}" VerticalAlignment="Center" Margin="0,0,16,0" />
+            <TextBlock Text="{t:T 'Remote Play app'}" VerticalAlignment="Center" Margin="0,0,12,0" />
             <ComboBox x:Name="AppChoice" SelectionChanged="OnApp" MinWidth="260">
                 <ComboBoxItem Content="{t:T 'Whichever is open'}" Tag="Automatic" />
                 <ComboBoxItem Content="{t:T 'PS Remote Play (Sony)'}" Tag="Sony" />

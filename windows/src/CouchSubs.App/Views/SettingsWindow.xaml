@@ -288,7 +288,7 @@
                         </StackPanel>
                     </c:Card>
                     <!-- Seçici: birden çok motorun çevirisinden en iyisi. -->
-                    <c:Card Title="{t:T 'Conductor'}" Margin="0,16,0,0">
+                    <c:Card Title="{t:T 'Conductor'}" Margin="0,12,0,0">
                         <s:ConductorSetup />
                     </c:Card>
                 </StackPanel>

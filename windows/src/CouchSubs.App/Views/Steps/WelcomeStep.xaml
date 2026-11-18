@@ -14,7 +14,7 @@
                 </StackPanel>
             </c:Card>
             <!-- PS5'te görüntünün nereden okunacağı: sihirbazın kalan adımları ve Ayarlar buna göre değişir. -->
-            <c:Card x:Name="SourceCard" Title="{t:T 'Where does CouchSubs get the game picture from?'}" Margin="0,16,0,0">
+            <c:Card x:Name="SourceCard" Title="{t:T 'Where does CouchSubs get the game picture from?'}" Margin="0,12,0,0">
                 <StackPanel>
                     <RadioButton x:Name="SourcePs5" GroupName="frameSource" Tag="Ps5" Checked="OnSource" Margin="0,0,0,12">
                         <StackPanel>
@@ -42,7 +42,7 @@
                     </RadioButton>
                 </StackPanel>
             </c:Card>
-            <TextBlock x:Name="Requirements" Margin="0,16,0,0" TextWrapping="Wrap" Style="{StaticResource HintText}" />
+            <TextBlock x:Name="Requirements" Margin="0,12,0,0" TextWrapping="Wrap" Style="{StaticResource HintText}" />
         </StackPanel>
     </c:StepLayout>
 </UserControl>

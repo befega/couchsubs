@@ -208,7 +208,8 @@ belleği gerekir (aşağıda).
 ### 1. Bu sürümü edinin
 
 Capture card / OBS kaynağı, kaynağa göre değişen kurulum sihirbazı ve seçici şimdilik bu depodaki
-`feat/windows-obs-websocket` dalındadır; resmî sürümde (yukarıdaki İndir bağlantıları) henüz yoktur. İki yol var:
+`feat/windows-obs-conductor-beta49` dalındadır; resmî sürümde (yukarıdaki İndir bağlantıları) henüz yoktur. Dal resmî
+**v0.1.0-beta.49** sürümünün üstüne kuruludur; o sürümdeki bütün yenilikler de içindedir. İki yol var:
 
 **A. Kendi bilgisayarınızda derleyin (önerilen, 10-15 dakika)**
 
@@ -221,7 +222,7 @@ Capture card / OBS kaynağı, kaynağa göre değişen kurulum sihirbazı ve se�
    ```
 2. Kodu indirin:
    ```powershell
-   git clone -b feat/windows-obs-websocket https://github.com/befega/couchsubs.git
+   git clone -b feat/windows-obs-conductor-beta49 https://github.com/befega/couchsubs.git
    cd couchsubs
    ```
 3. Derleyin:
@@ -243,7 +244,7 @@ Actions kullanılabilir olmalı):
 
 1. Depoda **Actions** sekmesini açın. Fork'ta ilk kez açıyorsanız **I understand my workflows, go ahead and enable them**'a
    basın.
-2. Soldan **windows** iş akışını seçin, **Run workflow** ile dalı `feat/windows-obs-websocket` seçip başlatın. Derleme
+2. Soldan **windows** iş akışını seçin, **Run workflow** ile dalı `feat/windows-obs-conductor-beta49` seçip başlatın. Derleme
    uzun sürer (yarım saati bulabilir).
 3. Biten çalışmanın altındaki **Artifacts** bölümünden `couchsubs-windows-installer`'ı (içinde
    `CouchSubs-windows-Setup.exe`) ya da kurulumsuz `couchsubs-windows` klasörünü indirin.
@@ -313,13 +314,10 @@ OBS kullanmadan bir pencereden okumak isterseniz (ör. OBS projektörü ya da ca
    ```
    `gemma3:12b` ekran kartında yaklaşık 9-10 GB yer tutar; 24 GB'lık bir kartta OBS'nin kodlayıcısıyla birlikte rahat
    çalışır. `gemma3:27b` daha iyi çevirebilir ama yaklaşık 20 GB ister ve daha yavaştır; yayın sırasında kartı zorlayabilir.
-   Daha hızlı bir seçenek: `qwen2.5:7b`.
-3. Modelin bellekte kalması için (aradan sonra gelen ilk satır modelin yüklenmesini beklemesin) bir kez şunu çalıştırıp
-   Ollama'yı yeniden başlatın:
-   ```powershell
-   setx OLLAMA_KEEP_ALIVE -1
-   ```
-4. CouchSubs'ta **Ayarlar › Çeviri › Çeviri motoru › Yerel model (Ollama, LM Studio)**'yu seçin, **Ollama'yı kullan**'a
+   Daha hızlı bir seçenek: `qwen2.5:7b`. Daha yeni `gemma4:12b` de aynı belleğe sığar; denerseniz `ollama run gemma4:12b`
+   ile cevaptan önce "Thinking..." çıkmadığına bakın (düşünme açıksa her satır gecikir).
+   CouchSubs her istekte Ollama'dan modeli 24 saat bellekte tutmasını ister; ayrıca bir ayar gerekmez.
+3. CouchSubs'ta **Ayarlar › Çeviri › Çeviri motoru › Yerel model (Ollama, LM Studio)**'yu seçin, **Ollama'yı kullan**'a
    basın (adres `http://localhost:11434/v1`), **Model adı**'na `gemma3:12b` yazıp **Bağlantıyı dene**'ye basın. İlk
    deneme modeli belleğe yüklediği için uzun sürebilir.
 
@@ -472,7 +470,7 @@ Windows are tested on real hardware.
 [subtitle window](docs/screenshots/windows/pencere.png)) and the design of the phone app
 ([docs/screenshots/telefon](docs/screenshots/telefon)). Everything is free, game packs included; no account is needed.
 
-**Streamers (Windows, capture card + OBS):** on the `feat/windows-obs-websocket` branch CouchSubs can read the game picture
+**Streamers (Windows, capture card + OBS):** on the `feat/windows-obs-conductor-beta49` branch CouchSubs can read the game picture
 straight from the capture card source in OBS through OBS's built-in WebSocket server (no second PSN account, PS5 pairing
 or TV needed); the first setup screen asks where the picture comes from and the rest of the wizard follows that choice.
 A **conductor** sends each line to several engines at once (DeepL, a local model such as Gemma through Ollama, the free
