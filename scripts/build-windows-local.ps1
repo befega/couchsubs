@@ -18,6 +18,8 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
+$env:DOTNET_NOLOGO = "1"
+$env:DOTNET_CLI_TELEMETRY_OPTOUT = "1"
 $root = Split-Path $PSScriptRoot -Parent
 Set-Location $root
 
@@ -30,6 +32,23 @@ if (-not (& dotnet --list-sdks | Where-Object { $_ -match '^10\.' })) { Fail ".N
 $python = Get-Command python -ErrorAction SilentlyContinue
 if (-not $python -or $python.Source -like "*WindowsApps*") { Fail "Python yok (Microsoft Store kısayolu sayılmaz). Kurun: winget install Python.Python.3.12, sonra yeni bir PowerShell penceresi açın." }
 Write-Host ("dotnet " + (& dotnet --version) + ", " + (& python --version))
+
+# Paketler nuget.org'dan iner. Bazı kurulumlarda kullanıcının NuGet ayarında nuget.org yoktur ya da kapalıdır; o zaman
+# her paket "NU1100: çözümlenemiyor" verir. Kaynak eklenir ya da açılır (yalnız bu kullanıcının NuGet ayarı değişir).
+$nugetOrg = "https://api.nuget.org/v3/index.json"
+$sources = @(& dotnet nuget list source --format Short)
+if (-not ($sources | Where-Object { $_ -match "^E\s+$([regex]::Escape($nugetOrg))" })) {
+    if ($sources | Where-Object { $_ -match [regex]::Escape($nugetOrg) }) {
+        Write-Host "nuget.org paket kaynağı kapalı; açılıyor."
+        & dotnet nuget enable source nuget.org
+        if ($LASTEXITCODE -ne 0) { & dotnet nuget add source $nugetOrg -n nuget.org-couchsubs }
+    } else {
+        Write-Host "nuget.org paket kaynağı tanımlı değil; ekleniyor."
+        & dotnet nuget add source $nugetOrg -n nuget.org
+        if ($LASTEXITCODE -ne 0) { & dotnet nuget add source $nugetOrg -n nuget.org-couchsubs }
+    }
+    if ($LASTEXITCODE -ne 0) { Fail "nuget.org paket kaynağı eklenemedi. Elle deneyin: dotnet nuget add source $nugetOrg -n nuget.org" }
+}
 
 # Xbox görüntü bileşeni (Node.js ile paketlenir) bu derlemede yok; proje dosyaları istediği için boş yer tutucular konur.
 $bridge = "windows\xbox-bridge\dist"
