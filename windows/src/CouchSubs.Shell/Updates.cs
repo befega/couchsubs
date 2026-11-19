@@ -16,6 +16,41 @@ public interface IUpdater
     Task InstallAsync(IProgress<double> progress);
 }
 
+/// <summary>
+/// Güncellemelerin geldiği GitHub deposu. Derlemedeki <c>CouchSubsUpdateRepository</c> bilgisiyle seçilir (App projesinde
+/// MSBuild özelliği): bu fork'ta varsayılan fork'un kendi deposudur; böylece uygulama resmî sürümü önermez, resmî sürüm
+/// kurulup OBS kaynağı ile seçici kaybolmaz. "off" güncelleme denetimini kapatır.
+/// </summary>
+public static class UpdateChannel
+{
+    public const string Upstream = "https://github.com/yorulmazsinan/couchsubs";
+    public const string MetadataKey = "CouchSubsUpdateRepository";
+
+    /// <summary>
+    /// Depo adresi (<c>https://github.com/sahip/ad</c>); kapalıysa ya da adres GitHub deposu değilse null (başka bir yere
+    /// güncelleme sormaktansa hiç sormamak güvenlidir). Bilgi hiç yoksa resmî depo.
+    /// </summary>
+    public static string? Repository(string? configured)
+    {
+        var value = configured?.Trim().TrimEnd('/');
+        if (string.IsNullOrEmpty(value)) return Upstream;
+        if (value.Equals("off", StringComparison.OrdinalIgnoreCase) || value.Equals("none", StringComparison.OrdinalIgnoreCase)) return null;
+        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps || uri.Host != "github.com"
+            || !string.IsNullOrEmpty(uri.Query) || !string.IsNullOrEmpty(uri.Fragment)) return null;
+        var parts = uri.AbsolutePath.Trim('/').Split('/');
+        if (parts.Length != 2 || !parts.All(part => part.Length > 0 && part.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_' or '.')))
+            return null;
+        return $"https://github.com/{parts[0]}/{parts[1]}";
+    }
+
+    public static string? Repository(Assembly? assembly) =>
+        Repository(assembly?.GetCustomAttributes<AssemblyMetadataAttribute>().FirstOrDefault(a => a.Key == MetadataKey)?.Value);
+
+    /// <summary>Deponun en son sürümünü veren GitHub API adresi.</summary>
+    public static string LatestReleaseApi(string repository) =>
+        "https://api.github.com/repos/" + repository["https://github.com/".Length..] + "/releases/latest";
+}
+
 /// <summary>Sürüm numaraları: "0.1.0-beta.10" (anlamsal sürüm, ön sürüm parçaları sayıysa sayı olarak karşılaştırılır).</summary>
 public static class AppVersion
 {

@@ -30,6 +30,15 @@
     <AssemblyMetadata Include="CouchSubsPacksUrl" Value="$(CouchSubsPacksUrl)" />
   </ItemGroup>
 
+  <!-- Güncellemelerin geldiği depo (UpdateChannel). Bu fork'ta varsayılan fork'un kendisi: uygulama resmî sürümü önermez.
+       `-p:CouchSubsUpdateRepository=off` güncelleme denetimini kapatır. -->
+  <PropertyGroup>
+    <CouchSubsUpdateRepository Condition="'$(CouchSubsUpdateRepository)' == ''">https://github.com/befega/couchsubs</CouchSubsUpdateRepository>
+  </PropertyGroup>
+  <ItemGroup>
+    <AssemblyMetadata Include="CouchSubsUpdateRepository" Value="$(CouchSubsUpdateRepository)" />
+  </ItemGroup>
+
   <ItemGroup>
     <Resource Include="Assets\logo.png" />
     <!-- ShellWindow.xaml pencere simgesi olarak bunu okur; ApplicationIcon yalnız exe simgesidir. -->
