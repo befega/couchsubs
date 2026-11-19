@@ -66,12 +66,16 @@ public enum TvDisplayMode
     Overlay,
 }
 
-/// <summary>TV'de altyazı yazısının rengi.</summary>
+/// <summary>Altyazı yazısının rengi. TV'de beyaz ve sarı seçilir; diğerleri yalnız yayın görünümünde (OBS katmanı ve yayın
+/// penceresi) sunulur, TV uygulamaları tanımadıkları rengi yok sayar.</summary>
 [JsonConverter(typeof(JsonStringEnumConverter<SubtitleTextColor>))]
 public enum SubtitleTextColor
 {
     White,
     Yellow,
+    Cyan,
+    Green,
+    Orange,
 }
 
 /// <summary>Altyazıları TV'ye ileten taraf (gerçekte <see cref="SubtitleServer"/>).</summary>
@@ -133,6 +137,7 @@ public sealed class SubtitleServer(int port = 8787, TimeSpan? pingInterval = nul
     private TcpListener? listener;
     private Timer? pingTimer;
     private SubtitleStyle? lastStyle;
+    private SubtitleStyle? obsStyle;
     /// <summary>GET ile verilen dosyalar: dublaj sesleri ve seslendirme modelinin ses örnekleri.</summary>
     private readonly Dictionary<string, (byte[] Data, string Type)> files = new(StringComparer.Ordinal);
     private readonly Queue<string> speechPaths = new();
@@ -328,10 +333,45 @@ public sealed class SubtitleServer(int port = 8787, TimeSpan? pingInterval = nul
     /// <summary>TV'de çalan dublajı durdurur.</summary>
     public void StopSpeech() => Broadcast(Frame("speech-stop", new SortedDictionary<string, object>()));
 
+    /// <summary>TV'lerin görünümü. Yayın görünümü ayrı seçilmediyse OBS katmanı da bunu kullanır.</summary>
     public void SendStyle(SubtitleStyle style)
     {
         lock (gate) lastStyle = style;
-        Broadcast(StyleFrame(style), subtitle: true);
+        BroadcastStyles(toTvs: true);
+    }
+
+    /// <summary>
+    /// Yayının (OBS katmanı) görünümü; null ise OBS katmanı TV'lerle aynı görünür. TV'lere gitmez; sunucu yeniden
+    /// kurulana kadar saklanır, sonradan bağlanan OBS katmanı da bunu alır.
+    /// </summary>
+    public void SendObsStyle(SubtitleStyle? style)
+    {
+        lock (gate)
+        {
+            if (obsStyle == style) return;
+            obsStyle = style;
+        }
+        BroadcastStyles(toTvs: false);
+    }
+
+    /// <summary>İzleyicinin (OBS) gördüğü görünüm: yayın görünümü seçildiyse o, yoksa TV'ninki.</summary>
+    private SubtitleStyle? ViewerStyle() => obsStyle ?? lastStyle;
+
+    private void BroadcastStyles(bool toTvs)
+    {
+        string? tvFrame, viewerFrame;
+        List<Client> tvs, viewers;
+        lock (gate)
+        {
+            tvFrame = lastStyle is { } tv ? StyleFrame(tv) : null;
+            viewerFrame = ViewerStyle() is { } viewer ? StyleFrame(viewer) : null;
+            tvs = toTvs && SendsToTv && tvFrame is not null ? [.. clients.Where(c => !c.Viewer)] : [];
+            viewers = viewerFrame is not null ? [.. clients.Where(c => c.Viewer)] : [];
+        }
+        foreach (var client in tvs)
+            _ = Write(client, tvFrame!).ContinueWith(t => Remove(client), TaskContinuationOptions.OnlyOnFaulted);
+        foreach (var client in viewers)
+            _ = Write(client, viewerFrame!).ContinueWith(t => Remove(client), TaskContinuationOptions.OnlyOnFaulted);
     }
 
     // --- Bağlantılar ---
@@ -427,7 +467,7 @@ public sealed class SubtitleServer(int port = 8787, TimeSpan? pingInterval = nul
         int count;
         lock (gate)
         {
-            if (lastStyle is { } style) head.Append(StyleFrame(style));
+            if ((viewer ? ViewerStyle() : lastStyle) is { } style) head.Append(StyleFrame(style));
             clients.Add(client);
             count = TvCount();
         }

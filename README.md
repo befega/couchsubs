@@ -252,8 +252,9 @@ Actions kullanılabilir olmalı):
 İki yolda da "Windows bilgisayarınızı korudu" uyarısında **Ek bilgi › Yine de çalıştır**'a basın (uygulama imzasızdır).
 Güvenlik duvarı sorarsa **Özel ağlar**'a izin verin.
 
-> **Güncelleme uyarısı:** Bu derlemenin sürümü `0.1.0-dev`'dir. Uygulama resmî sürüme güncellemeyi önerirse
-> **kabul etmeyin**; resmî sürüm bu derlemenin yerine geçer ve OBS kaynağı ile seçici kaybolur.
+> **Güncellemeler:** Bu derleme güncellemeyi resmî depodan değil bu fork'tan (`befega/couchsubs`) sorar; böylece
+> uygulama resmî sürümü önermez ve OBS kaynağı ile seçici yerinde kalır. Fork'ta sürüm yayımlanmadıkça güncelleme
+> görünmez. Denetimi tamamen kapatmak için derlerken `-p:CouchSubsUpdateRepository=off` ekleyin.
 
 ### 2. OBS'yi hazırlayın
 
@@ -289,6 +290,13 @@ OBS kullanmadan bir pencereden okumak isterseniz (ör. OBS projektörü ya da ca
 3. **Ayarlar › Altyazı alanı**'nda oyunun İngilizce altyazısının olduğu bölgeyi ayarlayın (çoğu oyunda **Alt bölge**).
    Oyunda İngilizce altyazının açık olması gerekir.
 4. Ana ekranda **Çeviriyi başlat**'a basın. Kutuda "OBS'den *kaynak adı* okunuyor" yazmalıdır.
+
+**Yayındaki görünüm:** **Ayarlar › OBS katmanı › Yayındaki görünüm**'de **TV ile aynı**'yı kapatınca yayındaki
+altyazının yazı boyu, yeri, zemini, kalınlığı ve rengi (beyaz, sarı, camgöbeği, yeşil, turuncu) TV'den ayrı seçilir.
+Aynı görünüm yayın penceresinde de kullanılır. **Örnek altyazı gönder** ile OBS'te hemen görürsünüz.
+
+**Yayında başka yazılar:** sürekli okunan ek alanlar (görev yazısı, telefon mesajı; **Num 1–3**) ve **Ekranı çevir**
+(**Num 9**: menü, görev paneli gibi ekrandaki bütün yazılar bir kez) yayında da yazının yerinde görünür.
 
 ### 5. Çeviri motorları
 

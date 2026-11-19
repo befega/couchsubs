@@ -523,6 +523,7 @@
                             </StackPanel>
                         </StackPanel>
                     </c:Card>
+                    <local:ObsAppearanceCard x:Name="ObsAppearance" Margin="0,12,0,0" />
                     <!-- Şeffaflık tanımayan yayın programları için düz zeminli altyazı penceresi (StreamWindow.cs). -->
                     <c:Card Title="{t:T 'Stream window'}" Margin="0,12,0,0">
                         <StackPanel>

@@ -1,0 +1,82 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-only -->
+<!-- Yayındaki (OBS katmanı ve yayın penceresi) altyazı görünümü; kapalıyken TV ile aynı. Yazı boyu 1080p'de pikseldir. -->
+<UserControl x:Class="CouchSubs.App.Views.ObsAppearanceCard"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:c="clr-namespace:CouchSubs.App.Controls"
+             xmlns:t="clr-namespace:CouchSubs.App.Theme">
+    <c:Card Title="{t:T 'Appearance on the stream'}">
+        <StackPanel>
+            <TextBlock Style="{StaticResource HintText}" TextWrapping="Wrap" Margin="0,0,0,12"
+                       Text="{t:T 'Choose how the subtitles look in OBS and in the stream window, separately from the TV.'}" />
+            <CheckBox x:Name="SameAsTv" Content="{t:T 'Same as on the TV'}" Foreground="{DynamicResource textPrimaryBrush}" Margin="0,0,0,12"
+                      Checked="OnSameAsTv" Unchecked="OnSameAsTv" />
+            <StackPanel x:Name="Controls">
+                <TextBlock Text="{t:T 'Text size'}" Margin="0,0,0,8" />
+                <Grid Margin="0,0,0,12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="40" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="{t:T 'Small'}" Style="{StaticResource HintText}" VerticalAlignment="Center" />
+                    <Slider x:Name="TextSize" Grid.Column="1" Minimum="16" Maximum="90" SmallChange="1" LargeChange="4" TickFrequency="1"
+                            IsSnapToTickEnabled="True" Margin="12,0" IsMoveToPointEnabled="True"
+                            ValueChanged="OnTextSize" PreviewMouseDown="OnPreview" />
+                    <TextBlock Grid.Column="2" Text="{t:T 'Large'}" Style="{StaticResource HintText}" VerticalAlignment="Center" />
+                    <TextBlock x:Name="TextSizeValue" Grid.Column="3" HorizontalAlignment="Right" VerticalAlignment="Center" />
+                </Grid>
+                <TextBlock Text="{t:T 'Placement'}" Margin="0,0,0,8" />
+                <ComboBox x:Name="Placement" SelectionChanged="OnPlacement" Margin="0,0,0,8">
+                    <ComboBoxItem Content="{t:T 'Over the English subtitle'}" Tag="Cover" />
+                    <ComboBoxItem Content="{t:T 'Above the English subtitle'}" Tag="Above" />
+                    <ComboBoxItem Content="{t:T 'Below the English subtitle'}" Tag="Below" />
+                    <ComboBoxItem Content="{t:T 'Fixed position'}" Tag="Fixed" />
+                </ComboBox>
+                <StackPanel x:Name="FixedPanel" Margin="0,0,0,4">
+                    <TextBlock Text="{t:T 'Position on screen'}" Margin="0,4,0,8" />
+                    <Grid Margin="0,0,0,12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="{t:T 'Bottom'}" Style="{StaticResource HintText}" VerticalAlignment="Center" />
+                        <Slider x:Name="Position" Grid.Column="1" Minimum="0" Maximum="85" Margin="12,0" IsMoveToPointEnabled="True"
+                                ValueChanged="OnPosition" PreviewMouseDown="OnPreview" />
+                        <TextBlock Grid.Column="2" Text="{t:T 'Top'}" Style="{StaticResource HintText}" VerticalAlignment="Center" />
+                    </Grid>
+                </StackPanel>
+                <TextBlock Text="{t:T 'Background'}" Margin="0,4,0,8" />
+                <Grid Margin="0,0,0,12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="{t:T 'None'}" Style="{StaticResource HintText}" VerticalAlignment="Center" />
+                    <Slider x:Name="BackgroundOpacity" Grid.Column="1" Minimum="0" Maximum="100" Margin="12,0" IsMoveToPointEnabled="True"
+                            ValueChanged="OnBackground" PreviewMouseDown="OnPreview" />
+                    <TextBlock Grid.Column="2" Text="{t:T 'Solid'}" Style="{StaticResource HintText}" VerticalAlignment="Center" />
+                </Grid>
+                <TextBlock Text="{t:T 'Background area'}" Margin="0,0,0,8" />
+                <ComboBox x:Name="BackgroundShape" SelectionChanged="OnBackgroundShape" Margin="0,0,0,12">
+                    <ComboBoxItem Content="{t:T 'Fit the text'}" Tag="Fit" />
+                    <ComboBoxItem Content="{t:T 'Full-width band'}" Tag="Band" />
+                </ComboBox>
+                <CheckBox x:Name="Bold" Content="{t:T 'Bold text'}" Foreground="{DynamicResource textPrimaryBrush}" Margin="0,0,0,12"
+                          Checked="OnBold" Unchecked="OnBold" />
+                <TextBlock Text="{t:T 'Text color'}" Margin="0,0,0,8" />
+                <ComboBox x:Name="TextColor" SelectionChanged="OnTextColor" Margin="0,0,0,12">
+                    <ComboBoxItem Content="{t:T 'White'}" Tag="White" />
+                    <ComboBoxItem Content="{t:T 'Yellow'}" Tag="Yellow" />
+                    <ComboBoxItem Content="{t:T 'Cyan'}" Tag="Cyan" />
+                    <ComboBoxItem Content="{t:T 'Green'}" Tag="Green" />
+                    <ComboBoxItem Content="{t:T 'Orange'}" Tag="Orange" />
+                </ComboBox>
+            </StackPanel>
+            <Button Content="{t:T 'Send test subtitle'}" HorizontalAlignment="Left" Click="OnTest" />
+        </StackPanel>
+    </c:Card>
+</UserControl>

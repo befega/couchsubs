@@ -180,6 +180,7 @@ public sealed class AppController : INotifyPropertyChanged, IDisposable
         server.ClientsChanged += OnClientsChanged;
         server.EventSent += OnSubtitleEvent;
         server.SendsToTv = settings.Output.ShowsOnTv();
+        server.SendObsStyle(settings.ObsStyle);
     }
 
     private void DetachServer()
@@ -409,6 +410,7 @@ public sealed class AppController : INotifyPropertyChanged, IDisposable
             if (!Set(ref settings, value, [nameof(UsesFreeGemini)])) return;
             settingsStore.Save(value);
             server.SendStyle(value.Style);
+            server.SendObsStyle(value.ObsStyle);
             if (old.Output != value.Output) OutputChanged();
             if (old.Dubbing != value.Dubbing) DubbingSettingsChanged(old.Dubbing);
             if (old.GamePacks != value.GamePacks && pipeline is not null) ConnectPacks(pipeline);

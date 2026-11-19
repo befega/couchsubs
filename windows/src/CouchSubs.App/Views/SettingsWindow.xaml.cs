@@ -78,6 +78,7 @@ public partial class SettingsWindow : Window
         Closed += (_, _) => controller.SnapshotRequested -= OnSnapshot;
         Dubbing.Attach(controller);
         FirewallSettings.Attach(controller);
+        ObsAppearance.Attach(controller);
         OutputCard.Attach(controller);
         ShowStyleTitle();
         controller.PropertyChanged += OnControllerChanged;

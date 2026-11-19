@@ -249,6 +249,13 @@ public sealed record UserSettings
     public ResultTarget FreeAreaTarget { get; init; } = ResultTarget.Tv;
     public SubtitleStyle Style { get; init; } = new();
     /// <summary>
+    /// Yayının (OBS katmanı ve yayın penceresi) görünümü; null ise TV ile aynı. Yayıncı TV'yi değiştirmeden yayındaki
+    /// yazının boyunu, rengini, zeminini ve yerini ayrı seçer.
+    /// </summary>
+    public SubtitleStyle? ObsStyle { get; init; }
+    /// <summary>Yayında kullanılan görünüm.</summary>
+    [System.Text.Json.Serialization.JsonIgnore] public SubtitleStyle StreamStyle => ObsStyle ?? Style;
+    /// <summary>
     /// Gelişmiş: bozuk okunan satırın daha iyi okuma için en çok bekletileceği süre (ms; 0: beklenmez). Eski kayıtlar
     /// varsayılanla açılır.
     /// </summary>

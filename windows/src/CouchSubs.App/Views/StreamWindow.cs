@@ -125,7 +125,7 @@ public sealed class StreamWindow : Window
     /// <summary>Saydam penceredekiyle aynı kurallar (bkz. <see cref="SubtitleOverlayWindow"/>).</summary>
     private void OnEvent(SubtitleEvent e)
     {
-        stack.StackPrevious = controller.Settings.Style.StackPrevious;
+        stack.StackPrevious = controller.Settings.StreamStyle.StackPrevious;
         switch (e.Kind)
         {
             case SubtitleEventKind.Subtitle:
@@ -200,14 +200,14 @@ public sealed class StreamWindow : Window
     /// </summary>
     private Border MakeBox(SubtitleStack.Line line)
     {
-        var style = controller.Settings.Style;
+        var style = controller.Settings.StreamStyle;
         var scale = Scale;
         var current = line.Role == SubtitleStack.Role.Current;
         var wrapped = line.Wrapped;
         var size = Math.Max(1, OverlayPlacement.FontSize(style.FontSize) * scale * (current ? 1 : 0.8) * wrapped.Scale);
         var boxed = StreamBackgrounds.BoxOpacity(style.Background) > 0;
         var dim = line.Role switch { SubtitleStack.Role.Current => 1.0, SubtitleStack.Role.Previous => 0.6, _ => 0.45 };
-        var color = style.TextColor == SubtitleTextColor.Yellow ? Color.FromRgb(0xFF, 0xE1, 0x35) : Colors.White;
+        var color = SubtitleColors.Of(style.TextColor);
         if (boxed) color.A = (byte)Math.Round(dim * 255);
         var text = new TextBlock
         {
@@ -234,7 +234,7 @@ public sealed class StreamWindow : Window
     /// <summary>Ek alanın çevirisi: altyazıdan küçük, tam koyu kutu (düz zeminde chroma key bozulmasın); alanın yanına yaslı.</summary>
     private Border MakeRegionBox(string text, CouchSubs.Core.TextBox? area)
     {
-        var style = controller.Settings.Style;
+        var style = controller.Settings.StreamStyle;
         var scale = Scale;
         var size = Math.Max(12, OverlayPlacement.FontSize(style.FontSize) * scale * 0.55);
         var middle = area is { } box ? (box.Left + box.Right) / 2 : 0.5;
@@ -250,7 +250,7 @@ public sealed class StreamWindow : Window
                 Text = text,
                 FontSize = size,
                 FontWeight = FontWeights.SemiBold,
-                Foreground = style.TextColor == SubtitleTextColor.Yellow ? new SolidColorBrush(Color.FromRgb(0xFF, 0xE1, 0x35)) : Brushes.White,
+                Foreground = SubtitleColors.Brush(style.TextColor),
                 TextWrapping = TextWrapping.Wrap,
                 LineHeight = size * 1.25,
             },

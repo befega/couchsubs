@@ -134,6 +134,51 @@ public class SubtitleServerTests
         Assert.Contains("event: subtitle", await ReadLines(reader, "event: clear"));
     }
 
+    /// <summary>
+    /// Yayın görünümü ayrı seçilince OBS katmanı onu alır, TV kendi görünümünde kalır; sonradan bağlanan katman da yayın
+    /// görünümüyle başlar. Ayrı görünüm kaldırılınca OBS yine TV'yi izler.
+    /// </summary>
+    [Fact]
+    public async Task ObsViewersGetTheStreamStyleAndTvsKeepTheirOwn()
+    {
+        using var server = new SubtitleServer(0);
+        var port = await server.StartAsync();
+        server.SendStyle(new SubtitleStyle(FontSize: 40, TextColor: SubtitleTextColor.Yellow));
+        server.SendObsStyle(new SubtitleStyle(FontSize: 70, Placement: SubtitlePlacement.Fixed, TextColor: SubtitleTextColor.Cyan));
+        using var tv = await Http.GetAsync($"http://127.0.0.1:{port}/events", HttpCompletionOption.ResponseHeadersRead);
+        using var obs = await Http.GetAsync($"http://127.0.0.1:{port}/events?viewer=obs", HttpCompletionOption.ResponseHeadersRead);
+        await WaitUntil(() => server.ConnectedClients == 1);
+        await Task.Delay(200);
+        using var tvReader = new StreamReader(await tv.Content.ReadAsStreamAsync());
+        using var obsReader = new StreamReader(await obs.Content.ReadAsStreamAsync());
+
+        server.Clear();
+        var tvFirst = string.Join('\n', await ReadLines(tvReader, "event: clear"));
+        var obsFirst = string.Join('\n', await ReadLines(obsReader, "event: clear"));
+        Assert.Contains("\"fontSize\":40", tvFirst);
+        Assert.Contains("\"textColor\":\"yellow\"", tvFirst);
+        Assert.Contains("\"fontSize\":70", obsFirst);
+        Assert.Contains("\"textColor\":\"cyan\"", obsFirst);
+        Assert.Contains("\"placement\":\"fixed\"", obsFirst);
+
+        // TV görünümü değişince OBS'e yayın görünümü gider, TV'ye yenisi.
+        server.SendStyle(new SubtitleStyle(FontSize: 52));
+        server.Clear();
+        var tvSecond = string.Join('\n', await ReadLines(tvReader, "event: clear"));
+        var obsSecond = string.Join('\n', await ReadLines(obsReader, "event: clear"));
+        Assert.Contains("\"fontSize\":52", tvSecond);
+        Assert.Contains("\"fontSize\":70", obsSecond);
+        Assert.DoesNotContain("\"fontSize\":70", tvSecond);
+
+        // Ayrı görünüm kalkınca OBS TV'yi izler; TV'ye görünüm gitmez.
+        server.SendObsStyle(null);
+        server.Clear();
+        var tvThird = await ReadLines(tvReader, "event: clear");
+        var obsThird = string.Join('\n', await ReadLines(obsReader, "event: clear"));
+        Assert.Contains("\"fontSize\":52", obsThird);
+        Assert.DoesNotContain("event: style", tvThird);
+    }
+
     /// Altyazı yalnız bilgisayar ekranındayken TV'ye altyazı gitmez; OBS katmanı ve dublaj sesi gitmeye devam eder.
     [Fact]
     public async Task SubtitlesSkipTvsWhenTvOutputIsOff()

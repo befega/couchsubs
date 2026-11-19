@@ -4,7 +4,8 @@
      Mac ve Windows uygulaması bu dosyayı /obs adresinden verir (aynı dosya). Adres parametreleri:
      ?size=48 (yazı boyu, 1080p'de piksel), ?bottom=8 (alttan uzaklık, %), ?bg=60 (altyazı kutusunun koyuluğu, 0-100),
      ?bg=green | black | magenta (tüm sayfanın zemini; şeffaflık tanımayan yayın programlarında chroma key ile silinir),
-     ?hint=1 / ?hint=0 (altyazı gelene kadar kısa "Altyazı bekleniyor" ipucu; OBS'te varsayılan kapalı, başka yerde açık). -->
+     ?hint=1 / ?hint=0 (altyazı gelene kadar kısa "Altyazı bekleniyor" ipucu; OBS'te varsayılan kapalı, başka yerde açık).
+     Altyazının yanında sürekli okunan ek alanları ve "Ekranı çevir" sonuçlarını da yazının yerinde gösterir. -->
 <html lang="tr">
 <head>
 <meta charset="utf-8">
@@ -19,7 +20,7 @@
     text-rendering: geometricPrecision; font-kerning: normal;
   }
   #wrap {
-    position: absolute; left: 0; right: 0; bottom: 7%;
+    position: absolute; left: 0; right: 0; bottom: 7%; z-index: 3;
     display: flex; justify-content: center; pointer-events: none;
     /* Kap tüm sayfayı kaplasa da (örtme) kutu yazı kadar kalır; tam yüksekliğe uzayıp siyah sütun olmaz. */
     align-items: flex-start;
@@ -36,30 +37,45 @@
   /* İngilizce altyazının yeri biliniyorsa çeviri onu örter (TV'deki "örtme" ile aynı). */
   #line.cover { position: absolute; transform: translate(-50%, -50%); }
   #hint {
-    position: absolute; left: 0; right: 0; bottom: 7%; text-align: center;
+    position: absolute; left: 0; right: 0; bottom: 7%; text-align: center; z-index: 4;
     font: 600 28px/1.3 -apple-system, "Segoe UI", system-ui, sans-serif;
     color: rgba(255, 255, 255, 0.85); text-shadow: 0 0 0.15em #000;
     display: none;
   }
   /* Ek alanların (görev, telefon mesajı, bildirim) çevirisi: oyundaki yazının yerinde, altyazıdan küçük koyu kutu. */
-  #regions { position: absolute; inset: 0; pointer-events: none; }
+  #regions { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
   .region {
     position: absolute; box-sizing: border-box; padding: 0.3em 0.6em; border-radius: 0.3em;
     font: 600 26px/1.25 -apple-system, "Segoe UI", system-ui, sans-serif;
     color: #fff; white-space: pre-line; background: rgba(0, 0, 0, 0.85);
   }
+  /* "Ekranı çevir" (Num 9): her çeviri kendi İngilizce yazısını örter, o yazının boyunda; altyazının altında, ek
+     alanların üstünde kalır. Yerleşim TV uygulamasıyla aynı (tv-webos/app.js showScreen). */
+  #screen { position: absolute; inset: 0; pointer-events: none; z-index: 2; }
+  #screen.hidden { display: none; }
+  #screen .item {
+    position: absolute; box-sizing: border-box; padding: 2px 6px; border-radius: 6px;
+    background: rgba(0, 0, 0, 0.97); color: #fff;
+    font-family: -apple-system, "Segoe UI", system-ui, sans-serif; font-weight: 600; line-height: 1.15;
+    text-align: center; text-shadow: 0 1px 2px #000; word-wrap: break-word; overflow: hidden;
+  }
+  #screen .item.paragraphs { text-align: left; white-space: pre-line; }
 </style>
 </head>
 <body>
 <div id="wrap"><div id="line"></div></div>
 <div id="hint"></div>
 <div id="regions"></div>
+<div id="screen" class="hidden"></div>
 <script>
 (function () {
   var wrap = document.getElementById('wrap');
   var line = document.getElementById('line');
   var hintBox = document.getElementById('hint');
   var regionsBox = document.getElementById('regions');
+  var screenBox = document.getElementById('screen');
+  var screenTimer = null;
+  var SCREEN_PAD = 0.004, SCREEN_MIN_FONT = 14;
   var regions = {};
   var params = new URLSearchParams(location.search);
   // Sayfa zemini (chroma key için): adla verilen renkler. Sayı verilirse eskisi gibi altyazı kutusunun koyuluğudur.
@@ -73,7 +89,8 @@
   // Son altyazının yerleşimi: 'fixed' (sabit yükseklik), 'cover', 'above' ya da 'below'.
   var shownMode = 'fixed';
   var lastStyle = {};
-  var TEXT_COLORS = { white: '#FFFFFF', yellow: '#FFE135' };
+  // Windows'taki SubtitleColors ile aynı; camgöbeği, yeşil ve turuncu yalnız yayın görünümünde seçilir.
+  var TEXT_COLORS = { white: '#FFFFFF', yellow: '#FFE135', cyan: '#5CE1FF', green: '#7CFF8A', orange: '#FFA83D' };
   var turkish = (navigator.language || 'tr').toLowerCase().indexOf('tr') === 0;
   var TEXTS = turkish
     ? { waiting: 'CouchSubs: altyazı bekleniyor', offline: 'CouchSubs uygulamasına bağlanılamadı' }
@@ -237,6 +254,78 @@
     regions = {};
   }
 
+  function validBox(box) {
+    if (!box || typeof box !== 'object') return null;
+    var keys = ['left', 'top', 'right', 'bottom'];
+    for (var i = 0; i < keys.length; i++) {
+      var value = box[keys[i]];
+      if (typeof value !== 'number' || value < 0 || value > 1) return null;
+    }
+    return box.right > box.left && box.bottom > box.top ? box : null;
+  }
+
+  /// Bir çevirinin aşağı doğru büyüyebileceği sınır: altındaki ve yatayda çakışan ilk kutunun üstü.
+  function screenBottom(items, box, left, width, screenWidth, screenHeight) {
+    var bottom = screenHeight;
+    for (var j = 0; j < items.length; j++) {
+      var other = items[j];
+      var next = validBox(other && other.box);
+      if (!next || !other.text || next.top < box.bottom) continue;
+      var nextLeft = Math.max(0, next.left - SCREEN_PAD) * screenWidth;
+      var nextWidth = Math.max(80, (Math.min(1, next.right + SCREEN_PAD) * screenWidth - nextLeft));
+      if (left < nextLeft + nextWidth && left + width > nextLeft)
+        bottom = Math.min(bottom, Math.max(0, next.top - SCREEN_PAD) * screenHeight);
+    }
+    return bottom;
+  }
+
+  /// "Ekranı çevir" sonuçları: öncekilerin yerine gelir, süre dolunca kalkar. Renkli zeminde (chroma key) kutu tam koyu.
+  function showScreen(items, duration) {
+    items = items || [];
+    screenBox.innerHTML = '';
+    screenBox.className = '';
+    hideHint();
+    var width = window.innerWidth || 1920;
+    var height = window.innerHeight || 1080;
+    for (var i = 0; i < items.length; i++) {
+      var item = items[i];
+      var box = validBox(item && item.box);
+      if (!box || !item.text) continue;
+      var el = document.createElement('div');
+      el.className = item.paragraphs === true ? 'item paragraphs' : 'item';
+      el.textContent = item.text;
+      if (pageColor) el.style.background = '#000';
+      if (line.style.color) el.style.color = line.style.color;
+      var left = Math.max(0, box.left - SCREEN_PAD);
+      var top = Math.max(0, box.top - SCREEN_PAD);
+      var boxHeight = (box.bottom - box.top + 2 * SCREEN_PAD) * height;
+      el.style.left = (left * 100) + '%';
+      el.style.top = (top * 100) + '%';
+      var itemWidth = Math.max(80, (Math.min(1, box.right + SCREEN_PAD) - left) * width);
+      el.style.width = itemWidth + 'px';
+      var available = Math.max(0, Math.floor(screenBottom(items, box, left * width, itemWidth, width, height) - top * height) - 1);
+      el.style.minHeight = Math.min(Math.round(boxHeight), available) + 'px';
+      var lineHeight = typeof item.line === 'number' && item.line > 0 ? item.line * height : (box.bottom - box.top) * height;
+      var size = Math.max(SCREEN_MIN_FONT, Math.min(96, Math.round(lineHeight * 0.95)));
+      el.style.fontSize = size + 'px';
+      screenBox.appendChild(el);
+      // Türkçe çoğu zaman İngilizceden uzundur: kutu biraz uzayabilir, daha fazlası için yazı küçülür.
+      var limit = Math.min(available, Math.max(boxHeight * 1.5, lineHeight * 2.6));
+      while (el.scrollHeight > limit && size > SCREEN_MIN_FONT) {
+        size = Math.max(SCREEN_MIN_FONT, size - 2);
+        el.style.fontSize = size + 'px';
+      }
+    }
+    clearTimeout(screenTimer);
+    screenTimer = setTimeout(hideScreen, duration || 20000);
+  }
+
+  function hideScreen() {
+    clearTimeout(screenTimer);
+    screenBox.className = 'hidden';
+    screenBox.innerHTML = '';
+  }
+
   // Kalkarken yalnız "on" gider; "cover" ve metin solma bitene kadar yerinde kalır. "cover" gidince opak kutu
   // kapın içinde tam yüksekliğe uzayıp OBS'te kısa süre siyah pencere olarak görünürdü.
   function hide() {
@@ -336,6 +425,11 @@
     try { var d = JSON.parse(e.data); showRegion(d.id, d.text, d.box); } catch (err) {}
   });
   events.addEventListener('region-clear', clearRegions);
+  // "Ekranı çevir" (Num 9): menü, görev paneli gibi yazıların çevirisi yerlerinde, birkaç saniye.
+  events.addEventListener('screen', function (e) {
+    try { var d = JSON.parse(e.data); showScreen(d.items, d.duration); } catch (err) {}
+  });
+  events.addEventListener('screen-clear', hideScreen);
 })();
 </script>
 </body>
